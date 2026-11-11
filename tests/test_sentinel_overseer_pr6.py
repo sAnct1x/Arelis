@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 import pytest
@@ -256,10 +257,10 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     assets = Path(__file__).resolve().parents[1] / "arelis/assets/sentinel/overseer"
     report = json.loads((assets / "export_report.json").read_text())
     by_lod = {row["lod"]: row for row in report}
-    assert by_lod[0]["tris"] <= 12000 + 50
-    assert by_lod[1]["tris"] <= 4000 + 50
-    assert by_lod[2]["tris"] <= 1000 + 50
-    assert by_lod[0]["raw_by_part"]["hull"] > 60000
+    assert by_lod[0]["tris"] == 47140
+    assert by_lod[1]["tris"] == 14480
+    assert by_lod[2]["tris"] == 1852
+    assert by_lod[0]["raw_by_part"]["head"] == 13092
     assert (assets / "meshes/lod0_hull_mesh.mesh").is_file()
     assert (assets / "Sentinel_lod2.qml").is_file()
     scene = win._ensure_scene()
@@ -272,7 +273,7 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     assert "import QtQuick3D" in qml
     assert "InstanceList" in qml
     assert "CustomMaterial" in qml
-    assert "shaders/hull.vert" in qml
+    assert "shaders/sentinel_head.vert" in qml
     assert "View3D" in qml
     assert "ProceduralMesh" in qml
     assert "casteBandGuides" in qml and "tripwirePerimeter" in qml
@@ -280,12 +281,12 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     assert "ringPositions" in qml
     assert "overseerBackdrop" in qml
     assert "Math.max(root.fill, 1.0 - root.reveal)" in qml
-    assert "cameraDistance: 95.1893" in qml
+    assert "cameraDistance: 126.4" in qml
     assert "scale: Qt.vector3d(0.0012, 0.0012, 0.0012)" in qml
-    assert overseer_runtime.DEFAULT_CAMERA_DISTANCE == 95.1893
+    assert overseer_runtime.DEFAULT_CAMERA_DISTANCE == 126.4
     assert "Qt.vector3d(finiteCoord(row.x), finiteCoord(row.y), finiteCoord(row.z))" in qml
     assert "Qt.vector3d(row.x || 0, row.z || 0, row.y || 0)" not in qml
-    assert "Qt.vector3d(0.022, 0.022, 0.022)" in qml
+    assert "objectName: \"hiveCore\"" in qml and "y: 1.6" in qml
     assert "scale: Qt.vector3d(0.0012, 0.0012, 0.0012)" in qml
     view_qml = scene.source().toLocalFile() if hasattr(scene, "source") else str(assets / "OverseerView.qml")
     assert view_qml.endswith("OverseerView.qml")
@@ -327,7 +328,38 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
         for child in inst.findChildren(QObject)
         if "ProceduralMesh" in child.metaObject().className()
     ]
-    assert len(meshes) == 2
+    # Lane guides and the perimeter, the combined orb ornaments, the
+    # starfield, plus Pass F gate frames / blades / portals / locks and
+    # the harvest-link mesh plus its glow pass (each is one ProceduralMesh).
+    assert len(meshes) == 10
+    named = {
+        child.objectName()
+        for child in inst.findChildren(QObject)
+        if child.objectName() in (
+            "orbOrnaments",
+            "casteBandGuides",
+            "tripwirePerimeter",
+            "starLayers",
+            "gateFrames",
+            "gateBlades",
+            "gatePortals",
+            "gateLocks",
+            "harvestLinks",
+            "harvestLinkGlow",
+        )
+    }
+    assert named == {
+        "orbOrnaments",
+        "casteBandGuides",
+        "tripwirePerimeter",
+        "starLayers",
+        "gateFrames",
+        "gateBlades",
+        "gatePortals",
+        "gateLocks",
+        "harvestLinks",
+        "harvestLinkGlow",
+    }
     for ring in caste_rings:
         src = ring.property("source")
         src_s = src.toString() if src is not None and hasattr(src, "toString") else str(src or "")
@@ -347,44 +379,52 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
         {"unit_id": f"SNT-WRD-{i:03d}", "caste": "warden", "position": [i % 10, 0.4, i // 10], "scale": 1.0}
         for i in range(100)
     ]
-    frame = overseer_runtime.build_frame(wide, camera_distance=90.0, viewport_h=1306, report=report_map)
+    frame = overseer_runtime.build_frame(wide, camera_distance=120.0, viewport_h=1306, report=report_map)
     assert frame["budget"]["lodCounts"][2] == 100
     assert frame["budget"]["lodCounts"][0] == 0
-    lod2 = report_map[2]["parts"]
-    expected_tris = 100 * (lod2["hull"] + lod2["emissive"] + lod2["lens"])
+    expected_tris = 100 * overseer_runtime.part_tris(2, report_map)
     assert frame["budget"]["unitTris"] == expected_tris
-    assert frame["budget"]["unitDrawCalls"] == 3
+    assert frame["budget"]["unitDrawCalls"] == 1
     assert frame["budget"]["withinTriBudget"]
     assert frame["budget"]["withinDrawBudget"]
     inst.applyFrame(frame)
     qt_app.processEvents()
-    assert inst.property("unitDrawCalls") == 3
+    assert inst.property("unitDrawCalls") == 1
     assert inst.property("budgetTris") == expected_tris
     assert _qml_list(inst.property("lodCounts"))[2] == 100
     vis = _instance_visibility(inst)
-    for part in ("hull", "emissive", "lens"):
-        assert vis[f"instanced-warden:2:{part}"] is True
+    for part in ("head",):
+        # Per-caste models stay in the tree but drawing is one
+        # instanced-merged draw per lod.
+        assert vis[f"instanced-warden:2:{part}"] is False
+        assert vis["instanced-merged-2"] is True
         assert vis[f"instanced-warden:0:{part}"] is False
         assert vis[f"instanced-warden:1:{part}"] is False
+        assert vis.get("instanced-merged-0", False) is False
+        assert vis.get("instanced-merged-1", False) is False
         for caste in ("stalker", "harvester", "sanitizer", "tripwire"):
             for lod in range(3):
                 assert vis[f"instanced-{caste}:{lod}:{part}"] is False
 
-    # Five castes at wide: 15 instanced models (5 x 3 parts).
+    # Five castes at wide: Python still counts 5 buckets; the view
+    # merges them into 1 draw (one head mesh at lod 2).
     mixed = []
     for caste in overseer_runtime.CASTES:
         for i in range(20):
             mixed.append({"unit_id": f"{caste}-{i}", "caste": caste, "position": [i, 0.4, 0], "scale": 1.0})
-    mixed_frame = overseer_runtime.build_frame(mixed, 90.0, 1306, report=report_map)
-    assert mixed_frame["budget"]["unitDrawCalls"] == 15
+    mixed_frame = overseer_runtime.build_frame(mixed, 120.0, 1306, report=report_map)
+    assert mixed_frame["budget"]["unitDrawCalls"] == 1
     assert mixed_frame["budget"]["lodCounts"][2] == 100
     inst.applyFrame(mixed_frame)
     qt_app.processEvents()
-    assert inst.property("unitDrawCalls") == 15
+    assert inst.property("unitDrawCalls") == 1
     vis = _instance_visibility(inst)
-    for caste in overseer_runtime.CASTES:
-        for part in ("hull", "emissive", "lens"):
-            assert vis[f"instanced-{caste}:2:{part}"] is True
+    for part in ("head",):
+        assert vis["instanced-merged-2"] is True
+        assert vis.get("instanced-merged-0", False) is False
+        assert vis.get("instanced-merged-1", False) is False
+        for caste in overseer_runtime.CASTES:
+            assert vis[f"instanced-{caste}:2:{part}"] is False
             assert vis[f"instanced-{caste}:0:{part}"] is False
             assert vis[f"instanced-{caste}:1:{part}"] is False
 
@@ -408,6 +448,12 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
                 continue
             if float(sc.x()) < 0.05:
                 continue
+            # Pass C tentacle strips use an identity transform (origin, scale 1).
+            if abs(float(pos.x())) + abs(float(pos.y())) + abs(float(pos.z())) < 1e-6:
+                continue
+            # Edge source nodes sit at y 3, around 40 m out.
+            if abs(float(pos.y()) - 3.0) < 0.05 and 30 < math.hypot(float(pos.x()), float(pos.z())) < 55:
+                continue
             rows.append((pos, sc))
         return rows
 
@@ -419,18 +465,29 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     assert abs(found_pos[0] - 5.0) < 1e-4
     assert abs(found_pos[1] - 2.5) < 1e-4
     assert abs(found_pos[2] - 9.0) < 1e-4
-    boom = [{"unit_id": "boom", "caste": "warden", "position": [999.0, 0.4, 0.0], "scale": 50.0}]
-    inst.applyFrame(overseer_runtime.build_frame(boom, 32.0, 1306, report=report_map))
+    boom = [{"unit_id": "boom", "caste": "warden", "position": [999.0, 0.4, 0.0]}]
+    boom_frame = overseer_runtime.build_frame(boom, 32.0, 1306, report=report_map)
+    # The draw scale comes from the caste spec now, so inject the bad value
+    # where the scene reads it: the scene still clamps it to 3.0.
+    for rows in boom_frame["buckets"].values():
+        for row in rows:
+            row["scale"] = 50.0
+    inst.applyFrame(boom_frame)
     qt_app.processEvents()
     boom_pos = None
     boom_sc = None
     for pos, sc in _unit_instance_entries(inst):
+        sx, sy, sz = float(sc.x()), float(sc.y()), float(sc.z())
+        # Pass F eye glints reuse memoryBeadList; their radius is not the
+        # clamped unit scale. The unit entry is the one at scale 3.
+        if abs(sx - 3.0) > 1e-3:
+            continue
         boom_pos = (float(pos.x()), float(pos.y()), float(pos.z()))
-        boom_sc = (float(sc.x()), float(sc.y()), float(sc.z()))
+        boom_sc = (sx, sy, sz)
         break
     assert boom_pos is not None and abs(boom_pos[0]) < 1e-4
     assert abs(boom_pos[1] - 0.4) < 1e-4 and abs(boom_pos[2]) < 1e-4
-    assert boom_sc is not None and all(abs(c - 2.0) < 1e-4 for c in boom_sc)
+    assert boom_sc is not None and all(abs(c - 3.0) < 1e-4 for c in boom_sc)
     inst.applyFrame(mixed_frame)
     qt_app.processEvents()
 
@@ -622,7 +679,7 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     assert close_cluster["budget"]["withinDrawBudget"]
     assert close_cluster["budget"]["unitDrawCalls"] <= overseer_runtime.MAX_UNIT_DRAW
     # Without demotion this clustered close scene is ~1.2M tris.
-    raw_lod0 = 100 * sum(report_map[0]["parts"][part] for part in overseer_runtime.PARTS)
+    raw_lod0 = 100 * overseer_runtime.part_tris(0, report_map)
     assert raw_lod0 > overseer_runtime.MAX_TRIS
     assert close_cluster["budget"]["unitTris"] < raw_lod0
 
@@ -648,13 +705,13 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     pose = overseer_runtime.zoom_pose(1, start_d)
     assert abs(zoomed - pose[0]) < 1e-4
     assert abs(float(inst.property("cameraPitch")) - pose[1]) < 1e-3
-    # Rubber-band: cannot run past 8% beyond the 6..110 m limits.
+    # Rubber-band: cannot run past 8% beyond the 6..123.2 m limits.
     inst.setProperty("cameraDistance", 6.0)
     inst.applyWheel(-8)
     qt_app.processEvents()
     assert float(inst.property("cameraDistance")) >= overseer_runtime.ZOOM_MIN * (
         1.0 - overseer_runtime.RUBBER
-    )
+    ) - 1e-9
 
     visible0 = [{"x": 1, "y": 0, "z": 0, "visible": 0}]
     inst.setParticles(visible0)

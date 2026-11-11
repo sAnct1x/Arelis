@@ -159,6 +159,10 @@ class WindowTurn:
         self.chat.add_file_card(written.name, str(written))
 
     def _on_submit(self, text: str, role: str, attachments: list | None = None) -> None:
+        # #594 parks chat under _overseer_chat_suspend while the Overseer is
+        # open. Composer, Again and the camera all submit through here.
+        if getattr(self, "_overseer_chat_suspend", None):
+            return
         note_engagement(self)
         if not attachments and self._try_physics_verb(text):
             return

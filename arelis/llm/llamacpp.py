@@ -22,6 +22,7 @@ from typing import Any
 
 import httpx
 
+from arelis.llm import token_meter
 from arelis.llm.errors import (
     LlamaComputeError,
     is_context_overflow,
@@ -614,6 +615,8 @@ class LlamaCppProvider:
                 thinking = delta.get("reasoning_content") or delta.get("reasoning") or ""
                 content = delta.get("content") or ""
                 tool_calls = delta.get("tool_calls") or []
+                if thinking or content or tool_calls:
+                    token_meter.note_token()
                 if thinking:
                     yield ("thinking", thinking)
                 if content:

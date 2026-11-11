@@ -9,14 +9,18 @@ from __future__ import annotations
 import json
 import math
 import re
+import time
 import unicodedata
 from collections import deque
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
+
+from arelis.ui import overseer_curves as _overseer_curves  # noqa: F401
 
 CASTES = ("warden", "stalker", "harvester", "sanitizer", "tripwire")
-PARTS = ("hull", "emissive", "lens")
+PARTS = ("head",)
 CASTE_COLOR = {
     "warden": "#a78bfa",
     "stalker": "#e879f9",
@@ -24,13 +28,24 @@ CASTE_COLOR = {
     "sanitizer": "#f2c56b",
     "tripwire": "#7ee0c8",
 }
+# Eye lenses (GAP.md item 1): caste colour; a fetching Harvester's eyes turn
+# #2fc4ff, and red is only for a unit engaged on a real threat.
 LENS_COLOR = {
-    "warden": "#5a1cff",
-    "stalker": "#c010e0",
-    "harvester": "#0a7cff",
-    "sanitizer": "#ff8a00",
+    "warden": "#a473f0",
+    "stalker": "#e879f9",
+    "harvester": "#8fd3ff",
+    "sanitizer": "#f2c56b",
     "tripwire": "#7ee0c8",
 }
+EYE_FETCHING = "#2fc4ff"
+EYE_THREAT = "#ff2a3c"
+# Pass F SPEC 2.4 / 7: draw scale is caste scale × SCALE_K, with
+# SCALE_K = clamp(sqrt(30 / n_inside), 0.64, 1.0). Pass E heads are
+# authored in metres (pod length 2.0 m), so UNIT_MESH_SCALE is 1.
+# The pre-Pass-F BAND-SPEC OVERVIEW_SCALE × 1.31 chat-off multiplier
+# (warden 1.64, harvester 1.70) is not used: at 100 units it drew
+# bodies ~2.6-3.0× too large versus the DESIGN renders (caste × 0.64).
+UNIT_MESH_SCALE = 1.0
 LOD0_PX = 180.0
 LOD1_PX = 60.0
 HYST = 0.15
@@ -39,8 +54,11 @@ FOV_DEG = 35.0
 UNIT_WORLD_H = 1.56
 PARTICLE_BUDGET = 520
 MOTE_FRACTION = 0.40
-SCENE_FIXED_DRAW = 8  # core, lane guides, perimeter, conduits, particles, 2 spare, glyphs
-MAX_UNIT_DRAW = 45  # 5 castes x 3 LOD x 3 parts
+# orb 5 (core, filaments, 2 shells, one ornament draw for three rings
+# plus beads), sources 2, tentacles 3, lanes, perimeter, conduits,
+# particles, glyphs, 1 star draw (three parallax layers instanced)
+SCENE_FIXED_DRAW = 23
+MAX_UNIT_DRAW = 6  # 3 LOD x (1 head + 1 tentacle); tentacles stay in the fixed count
 MAX_TRIS = 300_000
 
 
@@ -58,7 +76,11 @@ def load_mesh_report(path: Path | None = None) -> dict[str, Any]:
         for name, count in raw.items():
             # lod0_hull -> hull
             part = name.split("_", 1)[-1]
-            if name.endswith("_hull"):
+            if name.endswith("_head"):
+                part = "head"
+            elif name.endswith("_tentacle"):
+                part = "tentacle"
+            elif name.endswith("_hull"):
                 part = "hull"
             elif name.endswith("_emissive"):
                 part = "emissive"
@@ -66,7 +88,8 @@ def load_mesh_report(path: Path | None = None) -> dict[str, Any]:
                 part = "lens"
             parts[part] = int(count)
         by_lod[int(row["lod"])] = {
-            "tris": int(row["tris"]), "parts": parts, "target": int(row["target"])
+            "tris": int(row["tris"]), "parts": parts, "target": int(row["target"]),
+            "strands": int(row.get("strands") or 0),
         }
     return by_lod
 
@@ -152,9 +175,9 @@ BAND_OF_CASTE = {
     "stalker": "warden",
     "harvester": "harvester",
 }
-PERIMETER_MIN = 35.0
+PERIMETER_MIN = 44.0  # Pass F picket / tripwire outer
 PERIMETER_MARGIN = 10.0
-SOURCE_PAST_PERIMETER = 5.0
+SOURCE_PAST_PERIMETER = 1.0  # sources at r 45
 TRIPWIRE_LAP_S = 180.0
 TRIPWIRE_Y = 0.25
 MAX_OVERSEER_UNITS = 128
@@ -210,6 +233,21 @@ def band_point(
     return (x, z + band["height"], -y)
 
 
+def _orbit(
+    tilt_x: float, tilt_y: float, height: float, lane: dict[str, Any], theta: float
+) -> list[float]:
+    """[tilt_x, tilt_y, height, r, z, omega, theta]: the view moves a lane unit itself.
+
+    band_point(band, lane, theta + omega * dt) is where the unit is dt seconds after
+    this snapshot, so the view needs a new frame only when something else changes.
+    """
+    return [
+        float(tilt_x), float(tilt_y), float(height),
+        float(lane["r"]), float(lane["z"]), float(lane["omega"]),
+        round(math.fmod(theta, 2.0 * math.pi), 6),
+    ]
+
+
 def place_band_units(
     units: list[dict[str, Any]], snapshot_ts: float | None = None
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -237,7 +275,12 @@ def place_band_units(
             members.setdefault(BAND_OF_CASTE[caste], []).append(idx)
     out = [dict(u) for u in units]
 
-    def put(idx: int, pos: tuple[float, float, float], vel: tuple[float, float, float]) -> None:
+    def put(
+        idx: int,
+        pos: tuple[float, float, float],
+        vel: tuple[float, float, float],
+        orbit: list[float],
+    ) -> None:
         row = out[idx]
         if not _patrolling(row.get("state")):
             return
@@ -246,6 +289,7 @@ def place_band_units(
         speed = math.hypot(vel[0], vel[2])
         if speed > 1e-6:
             row["heading"] = [vel[0] / speed, 0.0, vel[2] / speed]
+        row["orbit"] = orbit
 
     for band_id, idxs in members.items():
         band = by_band[band_id]
@@ -263,7 +307,8 @@ def place_band_units(
                 a = band_point(band, lane, theta)
                 b = band_point(band, lane, theta + 1e-3)
                 vel = tuple((bb - aa) / 1e-3 * lane["omega"] for aa, bb in zip(a, b, strict=True))
-                put(idx, a, vel)  # type: ignore[arg-type]
+                orbit = _orbit(band["tilt_x"], band["tilt_y"], band["height"], lane, theta)
+                put(idx, a, vel, orbit)  # type: ignore[arg-type]
     n_trip = len(tripwires)
     if n_trip:
         r = layout["perimeter"]
@@ -273,8 +318,31 @@ def place_band_units(
             theta = 0.3 + 2.0 * math.pi * j / n_trip + omega * t
             pos = (math.cos(theta) * r, TRIPWIRE_Y, -math.sin(theta) * r)
             vel = (-math.sin(theta) * r * omega, 0.0, -math.cos(theta) * r * omega)
-            put(idx, pos, vel)
+            ring = {"r": r, "z": 0.0, "omega": omega}
+            put(idx, pos, vel, _orbit(0.0, 0.0, TRIPWIRE_Y, ring, theta))
     return out, layout
+
+
+def apply_tentacle_layout(units: list[dict[str, Any]]) -> None:
+    """lenMul and kappa from the unit's lane gap and radius (SPEC 4.2 / 5.2)."""
+    from collections import defaultdict
+
+    from arelis.ui.overseer_curves import lane_len_mul
+
+    lanes: dict[tuple[float, float], list[int]] = defaultdict(list)
+    for i, u in enumerate(units):
+        orb = u.get("orbit")
+        if isinstance(orb, (list, tuple)) and len(orb) >= 4:
+            lanes[(round(float(orb[3]), 4), round(float(orb[2]), 4))].append(i)
+        else:
+            u.setdefault("lenMul", 1.0)
+            u.setdefault("kappa", 0.0)
+    for (radius, _height), idxs in lanes.items():
+        gap = (2.0 * math.pi * max(radius, 0.1)) / max(len(idxs), 1)
+        for i in idxs:
+            scale = float(units[i].get("scale") or 1.0)
+            units[i]["lenMul"] = round(lane_len_mul(gap, scale), 4)
+            units[i]["kappa"] = round((1.0 / max(radius, 0.1)) * scale, 5)
 
 
 # Front tentacle reach: one pair per open harvest fetch, capped at the
@@ -318,6 +386,170 @@ def open_fetch_counts(
         if uid and tid and tid in open_nodes:
             per_unit.setdefault(uid, set()).add(tid)
     return {uid: len(ids) for uid, ids in per_unit.items()}
+
+
+def unit_fetching(unit: dict[str, Any]) -> bool:
+    """A unit with an open harvest request, or one the hive reports harvesting."""
+    state = str(unit.get("state") or "").upper()
+    return int(unit.get("open_fetches") or 0) > 0 or state == "ENGAGED_HARVEST"
+
+
+def view_scale(unit: dict[str, Any], scale_k: float | None = None) -> float:
+    """Pass F draw scale: caste scale × SCALE_K (SPEC 2.4).
+
+    Not the hive tier scale, and not the pre-Pass-F BAND-SPEC overview
+    sizes. SCALE_K is the layout factor (floor 0.64). A missing factor
+    is treated as 1.0 (one unit, or a test that did not pass layout).
+    """
+    from arelis.ui.overseer_freeflow import CASTES, KMIN
+
+    caste = str(unit.get("caste") or "warden").lower()
+    base = float((CASTES.get(caste) or CASTES["warden"])["scale"])
+    if scale_k is None:
+        raw = unit.get("scaleK", unit.get("scale_k"))
+        scale_k = 1.0 if raw is None else float(raw)
+    k = max(float(KMIN), min(1.0, float(scale_k)))
+    return round(base * k * UNIT_MESH_SCALE, 4)
+
+
+def eye_color(unit: dict[str, Any], caste: str) -> str:
+    state = str(unit.get("state") or "").upper()
+    if "ENGAGED_DEFENSE" in state:
+        return EYE_THREAT
+    if caste == "harvester" and unit_fetching(unit):
+        return EYE_FETCHING
+    return LENS_COLOR[caste]
+
+
+# Hive activity for the starfield drift: open requests, saturating at this many.
+ACTIVITY_FULL_REQUESTS = 3
+
+
+def hive_activity(fetches: dict[str, int]) -> float:
+    """0 when idle up to 1 at ACTIVITY_FULL_REQUESTS open requests."""
+    return round(min(1.0, sum(fetches.values()) / ACTIVITY_FULL_REQUESTS), 4)
+
+
+def unit_engaged_defense(unit: dict[str, Any]) -> bool:
+    return "ENGAGED_DEFENSE" in str(unit.get("state") or "").upper()
+
+
+def unit_engaged(unit: dict[str, Any]) -> bool:
+    return "ENGAGED" in str(unit.get("state") or "").upper()
+
+
+def threat_is_open(units: list[dict[str, Any]] | None, nodes: list[dict[str, Any]] | None) -> bool:
+    if any(unit_engaged_defense(u) for u in units or [] if isinstance(u, dict)):
+        return True
+    for node in nodes or []:
+        if not isinstance(node, dict):
+            continue
+        if str(node.get("kind") or "").lower() == "threat":
+            return True
+    return False
+
+
+def apply_lod_policy(
+    assigned: list[dict[str, Any]], selected_id: str | None = None
+) -> list[dict[str, Any]]:
+    """LOD1 for fetchers, engaged units and the focused unit; LOD0 only in close-up.
+
+    choose_lod already promotes to LOD0 when the projected height is large enough.
+    This only lifts overview (LOD2) units that must stay detailed, and never
+    forces the nearest 16 to LOD1.
+    """
+    focus = str(selected_id or "")
+    out = []
+    for u in assigned:
+        row = dict(u)
+        lod = int(row.get("lod", 2))
+        uid = str(row.get("unit_id") or "")
+        must = unit_fetching(row) or unit_engaged(row) or (focus and uid == focus)
+        if must and lod == 2:
+            row["lod"] = 1
+        if must and int(row["lod"]) >= 1:
+            row["lod_forced"] = 1
+        out.append(row)
+    return out
+
+
+def orb_energy(tok_rate: float) -> float:
+    """0.3 idle floor to 1.0 at 60 tok/s. Never faked."""
+    rate = max(0.0, float(tok_rate or 0.0))
+    return round(0.3 + 0.7 * min(1.0, rate / 60.0), 4)
+
+
+def memory_from_last_chat(snap: dict[str, Any] | None) -> int:
+    """Memories still in context from before chat was suspended. 0 if unknown."""
+    if not isinstance(snap, dict):
+        return 0
+    metrics = snap.get("metrics") if isinstance(snap.get("metrics"), dict) else {}
+    for src in (snap, metrics):
+        for key in ("memories_in_context", "memory_count", "context_memories"):
+            v = src.get(key)
+            if isinstance(v, int):
+                return max(0, v)
+            if isinstance(v, list):
+                return len(v)
+            if isinstance(v, float):
+                return max(0, int(v))
+    return 0
+
+
+def tools_running(snap: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Running tools from the snapshot only. Empty when nothing is running."""
+    if not isinstance(snap, dict):
+        return []
+    raw = snap.get("tools_running")
+    if raw is None and isinstance(snap.get("metrics"), dict):
+        raw = snap["metrics"].get("tools_running")
+    if isinstance(raw, int):
+        return [{"id": f"tool-{i}", "elapsed": 0.0, "timeout": 0.0} for i in range(max(0, raw))]
+    out: list[dict[str, Any]] = []
+    if isinstance(raw, list):
+        for i, row in enumerate(raw):
+            if isinstance(row, str):
+                out.append({"id": row, "elapsed": 0.0, "timeout": 0.0})
+                continue
+            if not isinstance(row, dict):
+                continue
+            timeout = float(row.get("timeout") or 0.0)
+            elapsed = float(row.get("elapsed") or 0.0)
+            out.append({
+                "id": str(row.get("id") or row.get("name") or f"tool-{i}"),
+                "elapsed": elapsed,
+                "timeout": timeout,
+            })
+    return out
+
+
+def orb_state(snap: dict[str, Any] | None, tok_rate: float = 0.0) -> dict[str, Any]:
+    tools = tools_running(snap)
+    memory = memory_from_last_chat(snap)
+    lit_arc = [0.0, 0.0, 2.0]
+    if tools:
+        t0 = tools[0]
+        if t0["timeout"] > 0:
+            lit_arc = [0.0, min(1.0, t0["elapsed"] / t0["timeout"]) * 0.08, 2.0]
+    return {
+        "energy": orb_energy(tok_rate),
+        "memoryCount": memory,
+        "memoryLabel": f"Memory · {memory} from last chat",
+        "toolsCount": len(tools),
+        "toolsLabel": f"Tools {len(tools)} running",
+        "toolsLitArc": lit_arc,
+        "tools": tools,
+        "results": orb_result_titles(snap),
+    }
+
+
+def srgb_to_linear(color: str) -> tuple[float, float, float]:
+    """Convert an #rrggbb sRGB colour to linear light."""
+    c = str(color or "").lstrip("#")
+    if len(c) < 6:
+        return (0.0, 0.0, 0.0)
+    rgb = (int(c[0:2], 16) / 255.0, int(c[2:4], 16) / 255.0, int(c[4:6], 16) / 255.0)
+    return tuple(round(ch ** 2.2, 6) for ch in rgb)  # type: ignore[return-value]
 
 
 def heading_deg(heading: Any) -> float:
@@ -767,6 +999,27 @@ def _raw_log_line(entry: dict[str, Any]) -> str:
     )
 
 
+REPLAY_WINDOW_S = 600.0
+REPLAY_TICK_CAP = 1500
+_THREAT_LEVELS = frozenset({"THREAT", "BLOCK", "CRITICAL", "ALERT", "EMP"})
+
+
+def replay_kind(entry: dict[str, Any]) -> str:
+    """Replay tick colour: fetch, result (in), tripwire (check), threat, or other."""
+    level = str(entry.get("level") or "").upper()
+    caste = str(entry.get("caste") or "").lower()
+    message = str(entry.get("message") or "")
+    if level in _THREAT_LEVELS:
+        return "threat"
+    if level == "TRIPWIRE" or caste == "tripwire":
+        return "tripwire"
+    if level in {"HARVEST", "WARRANT"} or caste == "harvester":
+        if "deployed for" in message or "Deploying" in message:
+            return "fetch"
+        return "result"
+    return "other"
+
+
 class LogSession:
     """The console's session log, kept by the host across snapshots.
 
@@ -786,11 +1039,20 @@ class LogSession:
         self._last_seq: int | None = None
         self._raw: deque[dict[str, Any]] = deque(maxlen=self.RAW_LIMIT)
         self._groups: dict[tuple, dict[str, Any]] = {}
+        # Replay strip: (seq, time, kind) of every row, kept past RAW_LIMIT
+        # so the strip covers its whole 10 minutes on a busy hive.
+        self._ticks: deque[tuple[int, float, str]] = deque(maxlen=REPLAY_TICK_CAP)
 
     def reset(self) -> None:
         self._last_seq = None
         self._raw.clear()
         self._groups.clear()
+        self._ticks.clear()
+
+    def replay_ticks(self, now: float) -> list[dict[str, Any]]:
+        """One tick per event of the last REPLAY_WINDOW_S seconds, oldest first."""
+        start = float(now) - REPLAY_WINDOW_S
+        return [{"seq": q, "t": t, "kind": k} for q, t, k in self._ticks if start <= t <= now + 5.0]
 
     def ingest(self, entries: list[dict[str, Any]] | None) -> None:
         rows = [e for e in entries or [] if isinstance(e, dict)]
@@ -806,6 +1068,9 @@ class LogSession:
             self._last_seq = entry["seq"]
             self._raw.append(entry)
             self._add(entry)
+            ts = entry.get("timestamp")
+            if isinstance(ts, (int, float)) and not isinstance(ts, bool):
+                self._ticks.append((entry["seq"], float(ts), replay_kind(entry)))
         if len(self._groups) > self.GROUP_LIMIT:
             keep = sorted(self._groups.items(), key=lambda kv: kv[1]["seq"])[-self.GROUP_LIMIT:]
             self._groups = dict(keep)
@@ -924,6 +1189,7 @@ def build_hud(
     camera_distance: float = 76.0,
     log_session: LogSession | None = None,
     log_repeats: bool = True,
+    dispatches: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     units = snapshot_units(snap)
     selected = next((u for u in units if u.get("unit_id") == selected_id), None)
@@ -939,6 +1205,15 @@ def build_hud(
             b_title = str(banner.get("title") or "").strip()
             b_sub = str(banner.get("subtitle") or "").strip()
             status_line = f"{b_title}: {b_sub}" if b_sub else b_title
+    session = log_session if log_session is not None else LogSession()
+    inspector = inspector_card(
+        selected,
+        castes=(snap or {}).get("castes") if isinstance(snap, dict) else None,
+        receipts=(snap or {}).get("recent_receipts") if isinstance(snap, dict) else None,
+        telemetry_log=(snap or {}).get("telemetry_log") if isinstance(snap, dict) else None,
+    )
+    inspector["origin"] = task_origin(selected, dispatches)
+    logs = _session_rows(snap, session, log_filter, log_query, log_repeats)
     return {
         "pills": pill_counts(
             units,
@@ -946,30 +1221,43 @@ def build_hud(
             (snap or {}).get("telemetry_log") if isinstance(snap, dict) else None,
         ),
         "swarmRows": swarm_rows(units, by=group_by, query=search, collapsed=collapsed),
-        "inspector": inspector_card(
-            selected,
-            castes=(snap or {}).get("castes") if isinstance(snap, dict) else None,
-            receipts=(snap or {}).get("recent_receipts") if isinstance(snap, dict) else None,
-            telemetry_log=(snap or {}).get("telemetry_log") if isinstance(snap, dict) else None,
-        ),
+        "inspector": inspector,
         "inspectorCollapsed": inspector_collapsed(camera_distance, selected_id or None),
-        "logs": _session_rows(snap, log_session, log_filter, log_query, log_repeats),
+        "logs": logs,
+        "ticks": session.replay_ticks(time.time()),  # the strip's clock is local time too
         "title": "Sentinels",
         "statusLine": status_line,
     }
 
 
+def task_origin(unit: dict[str, Any] | None, dispatches: list[dict[str, Any]] | None) -> str:
+    """'task from Dispatch at 11:58 PM' when this unit is working on a Dispatch
+    sent from the open Overseer. The hive names the target in the task
+    ("Extracting arxiv: sparse"), so the newest Dispatch whose query the task
+    names is its origin. Anything else has no known origin and says nothing.
+    """
+    if not unit or not dispatches or _patrolling(unit.get("state")):
+        return ""
+    task = str(unit.get("current_task") or "").lower()
+    for sent in reversed(dispatches):
+        query = str(sent.get("query") or "").strip().lower()[:40]
+        at = sent.get("at")
+        if query and query in task and isinstance(at, (int, float)):
+            stamp = datetime.fromtimestamp(float(at)).strftime("%I:%M %p").lstrip("0")
+            return f"task from Dispatch at {stamp}"
+    return ""
+
+
 ZOOM_MIN = 6.0
-ZOOM_MAX = 110.0
+ZOOM_MAX = 123.2
 ZOOM_NOTCH = 1.18
 RUBBER = 0.08
 PITCH_CLOSE_DEG = 22.0
 PITCH_WIDE_DEG = 55.0
-# Iris's wide frame (BAND-SPEC.md "Camera framing") at k = 1: camera at
-# spec (0, -78, 44) looking at (0, 3, -6), i.e. 95.19 m from the look target
-# at 31.68 deg pitch. OverseerView.qml fits the distance up from here so the
-# perimeter and every source label sit in the area the HUD leaves free.
-DEFAULT_CAMERA_DISTANCE = 95.1893
+# Pass F overview: camera at 126.4 m with barrier 38 (35 / 116.6 missed
+# the touching cap). Target and pitch stay (0, -6, -3) and 31.6864 deg.
+# k = perimeter / 44, so k stays 1 at the picket line.
+DEFAULT_CAMERA_DISTANCE = 126.4
 OVERVIEW_PITCH_DEG = 31.6864
 CASTE_MIX = (
     ("warden", 0.34),
@@ -988,8 +1276,22 @@ def zoom_t(distance: float) -> float:
 
 PITCH_MID_DEG = 36.0
 CLOSE_DISTANCE = 24.0  # frame the complete unit between responsive HUD panels
+# coreFocus is a separate preset (orb centre, 22 deg pitch). It does not
+# change the default 24 m unit focus or the overview scale.
+CORE_FOCUS_PITCH = 22.0
+CORE_FOCUS_MIN_DISTANCE = 10.0
+CORE_FOCUS_MAX_DISTANCE = 24.0
+CORE_FOCUS_BASE_DISTANCE = 15.0
+ORB_CENTRE = (0.0, 1.6, 0.0)
+
+
+def core_focus_distance(view_h: float, free_w: float) -> float:
+    """Metres for the coreFocus preset: max(15, 20 * viewH / freeW)."""
+    height = max(1.0, float(view_h or 1.0))
+    width = max(1.0, float(free_w or 1.0))
+    return max(CORE_FOCUS_BASE_DISTANCE, 20.0 * height / width)
 MID_DISTANCE = 32.0
-WIDE_DISTANCE = 96.0
+WIDE_DISTANCE = 107.52
 CLOSE_BAND = (ZOOM_MIN, 9.0)
 HIVE_TARGET = (0.0, 0.0, 0.0)
 _PITCH_MARKS = (
@@ -1127,7 +1429,13 @@ def unit_camera_distance(unit: dict[str, Any], eye: tuple[float, float, float]) 
 
 
 def part_tris(lod: int, report: dict[int, dict[str, Any]]) -> int:
-    parts = (report.get(int(lod)) or {}).get("parts") or {}
+    row = report.get(int(lod)) or {}
+    parts = row.get("parts") or {}
+    head = int(parts.get("head") or 0)
+    tent = int(parts.get("tentacle") or 0)
+    strands = int(row.get("strands") or 0)
+    if head or tent:
+        return head + strands * tent
     return sum(int(parts.get(part) or 0) for part in PARTS)
 
 
@@ -1153,8 +1461,16 @@ def enforce_budget(
     def key(row: dict[str, Any]) -> tuple[float, str]:
         return (float(row.get("height_px") or 0.0), str(row.get("unit_id") or ""))
 
+    def protected(row: dict[str, Any]) -> bool:
+        # Fetchers, engaged and focused units stay at least at LOD1.
+        return bool(row.get("lod_forced")) or unit_fetching(row) or unit_engaged(row)
+
     while assigned_tris(rows, report) > MAX_TRIS:
-        demote = [u for u in rows if not u["culled"] and int(u["lod"]) < 2]
+        demote = [
+            u for u in rows
+            if not u["culled"] and int(u["lod"]) < 2
+            and not (protected(u) and int(u["lod"]) == 1)
+        ]
         if not demote:
             break
         demote.sort(key=key)
@@ -1218,6 +1534,16 @@ def validate_shader_text(name: str, text: str) -> list[str]:
         for token in ("uHull", "uRole", "CLEARCOAT_AMOUNT", "EMISSIVE_COLOR"):
             if token not in text:
                 errors.append(f"{name}: missing {token}")
+    if name == "tentacle.vert":
+        for token in (
+            "texelFetch", "INSTANCE_DATA", "VIEWPROJECTION_MATRIX", "rotation-minimising",
+        ):
+            if token not in text:
+                errors.append(f"{name}: missing {token}")
+    if name == "rim_hull.frag":
+        for token in ("EMISSIVE_COLOR", "wearGain", "lipGain", "VAR_WORLD_NORMAL"):
+            if token not in text:
+                errors.append(f"{name}: missing {token}")
     return errors
 
 
@@ -1226,6 +1552,10 @@ def validate_overseer_shaders(asset_root: Path | None = None) -> list[str]:
     errors: list[str] = []
     for name in (
         "hull.vert", "hull.frag", "emissive.vert", "emissive.frag", "lens.vert", "lens.frag",
+        "rim_hull.vert", "rim_hull.frag", "eye_lens.vert", "eye_lens.frag",
+        "emission.vert", "emission_instanced.vert", "emission.frag",
+        "orb_shell.vert", "orb_shell.frag",
+        "source_node.frag", "tentacle.vert",
     ):
         path = root / name
         if not path.is_file():
@@ -1290,11 +1620,17 @@ def build_buckets(units: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]
         limp = 1.0 if "EMP" in state.upper() or "HALT" in state.upper() else 0.0
         raw_scale = u.get("scale")
         scale = float(raw_scale) if raw_scale is not None else 0.36
+        dim = 0.2 if u.get("threat_dim") else 1.0
+        tgt = u.get("harvest_target")
+        target = None
+        if isinstance(tgt, (list, tuple)) and len(tgt) >= 3:
+            target = [float(tgt[0]), float(tgt[1]), float(tgt[2])]
         buckets[bucket_key(caste, lod)].append(
             {
                 "unit_id": u.get("unit_id"),
                 "caste": caste,
                 "lod": lod,
+                "index": int(u.get("unit_index") or i),
                 "x": x,
                 "y": y,
                 "z": z,
@@ -1305,14 +1641,63 @@ def build_buckets(units: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]
                 "scale": scale,
                 "color": CASTE_COLOR[caste],
                 "lens": LENS_COLOR[caste],
+                "eye": eye_color(u, caste),
                 "phase": float(u.get("phase") or (i * 1.7)),
                 "claw": claw_open(state),
                 "limp": limp,
                 "speed": tentacle_speed(state),
                 "reach": max(0, min(MAX_REACH_PAIRS, int(u.get("open_fetches") or 0))),
+                "dim": dim,
+                "eyeGain": 1.0,
+                "threatMix": 1.0 if unit_engaged_defense(u) else 0.0,
+                "target": target,
+                "state": state,
+                "lenMul": float(u.get("lenMul") or 1.0),
+                "kappa": float(u.get("kappa") or 0.0),
+                "eyeMul": (
+                    0.1 if limp
+                    else 0.0 if "DOCKED" in state.upper()
+                    else 2.9 if eye_color(u, caste) == EYE_THREAT
+                    else 1.0
+                ),
+                "open_fetches": int(u.get("open_fetches") or 0),
             }
         )
+        if u.get("orbit"):
+            buckets[bucket_key(caste, lod)][-1]["orbit"] = list(u["orbit"])
     return buckets
+
+
+# What the view derives itself between frames: a lane unit's place and heading
+# (from its orbit) and a glyph trail's age (from its first sight).
+_ORBIT_MOTION = frozenset({"x", "y", "z", "vx", "vy", "vz", "heading_deg"})
+
+
+def scene_key(frame: dict[str, Any]) -> dict[str, Any]:
+    """The part of a frame the view cannot work out on its own.
+
+    Two polls with equal keys draw the same scene, so the second needs no
+    applyFrame: idle lane units keep moving from their orbit in the view.
+    """
+    buckets = {}
+    for key, rows in (frame.get("buckets") or {}).items():
+        out = []
+        for row in rows:
+            orbit = row.get("orbit")
+            if orbit:
+                row = {k: v for k, v in row.items() if k not in _ORBIT_MOTION}
+                row["orbit"] = orbit[:6]
+            out.append(row)
+        buckets[key] = out
+    trails = [
+        {k: v for k, v in t.items() if k != "age_s"} for t in frame.get("glyphTrails") or []
+    ]
+    rest = {
+        k: v
+        for k, v in frame.items()
+        if k not in ("units", "prevLods", "buckets", "glyphTrails")
+    }
+    return {**rest, "buckets": buckets, "glyphTrails": trails}
 
 
 def budget_from_buckets(
@@ -1323,6 +1708,7 @@ def budget_from_buckets(
     tris = 0
     unit_draw = 0
     active = []
+    lod_used = {0: False, 1: False, 2: False}
     for caste in CASTES:
         for lod in (0, 1, 2):
             rows = buckets.get(bucket_key(caste, lod)) or []
@@ -1330,15 +1716,14 @@ def budget_from_buckets(
             lod_counts[lod] += n
             if n == 0:
                 continue
-            parts = (report.get(lod) or {}).get("parts") or {}
-            for part in PARTS:
-                part_tris = int(parts.get(part) or 0)
-                tris += part_tris * n
-                unit_draw += 1
-                active.append({
-                    "caste": caste, "lod": lod, "part": part,
-                    "count": n, "tris": part_tris * n,
-                })
+            per = part_tris(lod, report)
+            tris += per * n
+            lod_used[lod] = True
+            active.append({
+                "caste": caste, "lod": lod, "part": "head",
+                "count": n, "tris": per * n,
+            })
+    unit_draw = sum(1 for used in lod_used.values() if used)
     return {
         "unitTris": tris,
         "unitDrawCalls": unit_draw,
@@ -1371,35 +1756,194 @@ NODE_KIND_COLOR = {
     "merkle_root": "#7ee0c8",
 }
 
-# Fixed edge sources for the Overseer. Beams light only on a real harvest fetch.
+# Harvest sources are derived from the snapshot (any fetch host, local
+# tool, or local port). These presets only pin the display name, bearing,
+# and colour of well-known ids; they are not a closed catalog.
 HARVEST_SOURCE_EDGE_R = PERIMETER_MIN + SOURCE_PAST_PERIMETER
-HARVEST_SOURCES: tuple[tuple[str, str, float, str], ...] = (
-    # id, label, angle_radians (spec space, BAND-SPEC.md), color.
+HARVEST_SOURCE_PRESETS: dict[str, tuple[str, float, str]] = {
     # Horizons takes the spec's PubMed slot (62 deg); the hive has no PubMed source.
-    ("arxiv", "arXiv", math.radians(8.0), "#8fd3ff"),
-    ("wikipedia", "Wikipedia", math.radians(128.0), "#a78bfa"),
-    ("horizons", "Horizons", math.radians(62.0), "#7ee0c8"),
-    ("web", "Web", math.radians(160.0), "#e879f9"),
+    "arxiv": ("arXiv", math.radians(8.0), "#8fd3ff"),
+    "wikipedia": ("Wikipedia", math.radians(128.0), "#a78bfa"),
+    "horizons": ("Horizons", math.radians(62.0), "#7ee0c8"),
+    "web": ("Web", math.radians(160.0), "#e879f9"),
+}
+HARVEST_SOURCES: tuple[tuple[str, str, float, str], ...] = tuple(
+    (sid, label, ang, col) for sid, (label, ang, col) in HARVEST_SOURCE_PRESETS.items()
 )
-HARVEST_SOURCE_IDS = {row[0] for row in HARVEST_SOURCES}
+HARVEST_SOURCE_IDS = set(HARVEST_SOURCE_PRESETS)
+_SOURCE_PALETTE = ("#8fd3ff", "#a78bfa", "#7ee0c8", "#e879f9", "#38bdf8", "#f0abfc")
+# Port-gateway bearings (SPEC 2.2); new source bearings stay off this set.
+_PORT_BEARINGS = tuple(math.radians(a) for a in (348.0, 292.0, 248.0, 205.0))
+_BEARING_SEP = math.radians(16.0)
+_FETCH_VERBS = frozenset({
+    "url", "web", "fetch", "fetch_url", "harvest", "extracting", "query",
+    "http", "https", "open", "get", "browse", "search",
+})
+_URL_RE = re.compile(r"https?://[^\s<>\]\)]+", re.IGNORECASE)
+_LOCAL_RE = re.compile(r"\b(localhost|127\.0\.0\.1):(\d{1,5})\b", re.IGNORECASE)
+_TOOL_RE = re.compile(r"^[a-z][a-z0-9_]{1,32}$")
+
+
+def _max_gates() -> int:
+    from arelis.ui.overseer_freeflow import MAX_GATES
+    return int(MAX_GATES)
+
+
+def _alias_host(host: str) -> str:
+    h = host.lower().removeprefix("www.")
+    if h == "arxiv.org" or h.endswith(".arxiv.org"):
+        return "arxiv"
+    if h == "wikipedia.org" or h.endswith(".wikipedia.org") or h.endswith(".wikimedia.org"):
+        return "wikipedia"
+    if h in {"ssd.jpl.nasa.gov", "horizons.jpl.nasa.gov"} or "horizons" in h:
+        return "horizons"
+    return h
+
+
+def _display_host(host: str, port: int | None) -> tuple[str, str]:
+    raw = (host or "").lower().removeprefix("www.")
+    if raw in {"::1", "[::1]"}:
+        raw = "localhost"
+    alias = _alias_host(raw)
+    if alias in HARVEST_SOURCE_PRESETS:
+        return alias, HARVEST_SOURCE_PRESETS[alias][0]
+    if raw in {"localhost", "127.0.0.1"}:
+        sid = f"localhost:{port}" if port and port not in (80, 443) else "localhost"
+        return sid, sid
+    if port and port not in (80, 443):
+        sid = f"{raw}:{port}"
+        return sid, sid
+    return raw, raw
+
+
+def _identity_from_url(raw: str) -> tuple[str, str] | None:
+    text = str(raw or "").strip().rstrip(".,;)]>")
+    if not text:
+        return None
+    if "://" not in text:
+        text = "http://" + text
+    try:
+        parsed = urlparse(text)
+    except ValueError:
+        return None
+    host = parsed.hostname or ""
+    if not host:
+        return None
+    return _display_host(host, parsed.port)
+
+
+def _identity_from_text(text: object) -> tuple[str, str] | None:
+    blob = str(text or "")
+    if not blob.strip():
+        return None
+    for match in _URL_RE.finditer(blob):
+        found = _identity_from_url(match.group(0))
+        if found:
+            return found
+    local = _LOCAL_RE.search(blob)
+    if local:
+        return _display_host("localhost", int(local.group(2)))
+    return None
+
+
+def harvest_source_identity(action: object, target: object = None) -> tuple[str, str]:
+    """Stable (id, display name) for a harvest action/URL, or empty strings.
+
+    Display names are the host without www, a local tool name, or
+    'localhost:port'. Well-known hosts keep their preset ids (arxiv,
+    wikipedia, horizons) so bearings stay put. Unknown URLs keep their
+    own host; they are not folded into 'web'.
+    """
+    a = str(action or "").strip()
+    tgt = str(target or "").strip()
+    al = a.lower()
+    if al in HARVEST_SOURCE_PRESETS:
+        return al, HARVEST_SOURCE_PRESETS[al][0]
+    for blob in (tgt, a, f"{a} {tgt}".strip()):
+        found = _identity_from_text(blob)
+        if found:
+            return found
+    # A local tool (files, read_pdf, ...) only when there is also a target
+    # so a bare unknown token like "synthetic" does not become a source.
+    if _TOOL_RE.match(al) and al not in _FETCH_VERBS and tgt:
+        return al, a or al
+    colon = re.match(r"^([a-z][a-z0-9_]{1,32})\s*:", tgt.lower())
+    if (colon and colon.group(1) not in _FETCH_VERBS
+            and colon.group(1) not in HARVEST_SOURCE_PRESETS):
+        sid = colon.group(1)
+        return sid, sid
+    blob = f"{al} {tgt.lower()}"
+    if "arxiv" in blob:
+        return "arxiv", HARVEST_SOURCE_PRESETS["arxiv"][0]
+    if "wikipedia" in blob or "wiki" in blob:
+        return "wikipedia", HARVEST_SOURCE_PRESETS["wikipedia"][0]
+    if "horizons" in blob or "ssd.jpl" in blob:
+        return "horizons", HARVEST_SOURCE_PRESETS["horizons"][0]
+    if al in {"url", "web", "fetch", "fetch_url"} or tgt.lower().startswith(("http://", "https://")):
+        return "web", HARVEST_SOURCE_PRESETS["web"][0]
+    return "", ""
 
 
 def normalize_harvest_source(action: object, target: object = None) -> str:
-    """Map a harvester action or URL onto a fixed edge source id, or empty."""
-    a = str(action or "").strip().lower()
-    t = str(target or "").strip().lower()
-    blob = f"{a} {t}"
-    if a in HARVEST_SOURCE_IDS:
-        return a
-    if "arxiv" in blob:
-        return "arxiv"
-    if "wikipedia" in blob or "wiki" in blob:
-        return "wikipedia"
-    if "horizons" in blob or "ssd.jpl" in blob:
-        return "horizons"
-    if a in {"url", "web", "fetch", "fetch_url"} or t.startswith("http://") or t.startswith("https://"):
-        return "web"
-    return ""
+    """Map a harvester action or URL onto a source id, or empty."""
+    return harvest_source_identity(action, target)[0]
+
+
+def harvest_source_label(sid: str) -> str:
+    if sid in HARVEST_SOURCE_PRESETS:
+        return HARVEST_SOURCE_PRESETS[sid][0]
+    return sid
+
+
+def harvest_source_color(sid: str) -> str:
+    if sid in HARVEST_SOURCE_PRESETS:
+        return HARVEST_SOURCE_PRESETS[sid][2]
+    acc = 0
+    for ch in sid:
+        acc = (acc * 167 + ord(ch)) & 0xFFFFFFFF
+    return _SOURCE_PALETTE[acc % len(_SOURCE_PALETTE)]
+
+
+def harvest_source_bearing(sid: str, taken: list[float] | None = None) -> float:
+    """Stable bearing for a source id, clear of port gateways and `taken`."""
+    if sid in HARVEST_SOURCE_PRESETS:
+        return HARVEST_SOURCE_PRESETS[sid][1]
+    reserved = list(_PORT_BEARINGS)
+    if taken:
+        reserved.extend(taken)
+    acc = 0
+    for ch in sid:
+        acc = (acc * 167 + ord(ch)) & 0xFFFFFFFF
+    seed = ((acc * 0.6180339887) % 1.0) * 2.0 * math.pi
+    for step in range(48):
+        ang = (seed + step * _BEARING_SEP) % (2.0 * math.pi)
+        if all(min(abs(ang - other) % (2 * math.pi),
+                   2 * math.pi - (abs(ang - other) % (2 * math.pi))) >= _BEARING_SEP
+               for other in reserved):
+            return ang
+    return seed
+
+
+def harvest_source_record(sid: str, taken: list[float] | None = None) -> dict[str, Any]:
+    return {
+        "id": sid,
+        "label": harvest_source_label(sid),
+        "theta": harvest_source_bearing(sid, taken),
+        "color": harvest_source_color(sid),
+    }
+
+
+def select_harvest_sources(counts: dict[str, int], cap: int | None = None) -> list[str]:
+    """Keep at most MAX_GATES sources. Priority: more traffic first, then id.
+
+    SPEC 2.2: threat > traffic > open; no invented 'other' gate. Threat is
+    applied by the caller when it has that flag; here traffic is the open
+    count, and every included source is already open.
+    """
+    limit = int(_max_gates() if cap is None else cap)
+    items = [(sid, int(n)) for sid, n in counts.items() if sid and int(n) > 0]
+    items.sort(key=lambda row: (-row[1], row[0]))
+    return [sid for sid, _ in items[: max(0, limit)]]
 
 
 def active_harvest_sources(
@@ -1410,9 +1954,9 @@ def active_harvest_sources(
 
     A harvest_target node exists only while the harvester is vectoring or
     extracting, so its metadata.action/target is the primary signal. A unit
-    lights a source only when its task or action normalizes to a known source
-    id (arxiv, wikipedia, horizons, web). Bare HARVEST/CARRY state alone does
-    not light Web.
+    lights a source only when its task or action resolves to a harvest
+    source id (a host, local tool, local port, or a well-known preset).
+    Bare HARVEST/CARRY state alone does not invent a source.
     """
     active: set[str] = set()
     for node in nodes or []:
@@ -1435,20 +1979,114 @@ def active_harvest_sources(
     return active
 
 
+
+def source_open_counts(
+    units: list[dict[str, Any]] | None = None,
+    nodes: list[dict[str, Any]] | None = None,
+) -> dict[str, int]:
+    """Open harvest requests per derived source, from the snapshot only."""
+    counts: dict[str, int] = {}
+    seen: set[str] = set()
+    for node in nodes or []:
+        if not isinstance(node, dict):
+            continue
+        if str(node.get("kind") or "").lower() != "harvest_target":
+            continue
+        meta = node.get("metadata") if isinstance(node.get("metadata"), dict) else {}
+        sid = normalize_harvest_source(meta.get("action"), meta.get("target") or node.get("label"))
+        if not sid:
+            continue
+        counts[sid] = counts.get(sid, 0) + 1
+        uid = str(meta.get("unit_id") or "")
+        if uid:
+            seen.add(uid)
+    for unit in units or []:
+        if not isinstance(unit, dict):
+            continue
+        uid = str(unit.get("unit_id") or "")
+        if uid and uid in seen:
+            continue
+        task = unit.get("current_task") or unit.get("task")
+        sid = normalize_harvest_source(unit.get("action"), task)
+        if sid:
+            counts[sid] = counts.get(sid, 0) + 1
+    return counts
+
+
+def source_world_pos(
+    sid: str, radius: float | None = None, taken: list[float] | None = None
+) -> tuple[float, float, float]:
+    edge_r = float(radius) if radius else HARVEST_SOURCE_EDGE_R
+    angle = harvest_source_bearing(sid, taken)
+    x = edge_r * math.cos(angle)
+    z = -edge_r * math.sin(angle)
+    return (x, 3.0, z)
+
+
+def build_source_nodes(
+    counts: dict[str, int], radius: float | None = None, *, cap: int | None = None
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Glass + emissive instances and 2D labels for derived harvest sources.
+
+    Only sources with an open count are drawn. Overflow beyond MAX_GATES
+    folds by traffic, then id; there is no 'other' gate.
+    """
+    nodes: list[dict[str, Any]] = []
+    labels: list[dict[str, Any]] = []
+    taken: list[float] = []
+    for sid in select_harvest_sources(counts, cap=cap):
+        n_open = int(counts.get(sid) or 0)
+        rec = harvest_source_record(sid, taken)
+        taken.append(rec["theta"])
+        x, y, z = source_world_pos(sid, radius, taken[:-1])
+        nx, ny, nz = _clamp_conduit_coord(x, y, z)
+        hot = n_open > 0
+        label = rec["label"]
+        color = rec["color"]
+        row = {
+            "id": sid,
+            "label": label,
+            "x": nx, "y": ny, "z": nz,
+            "color": color,
+            "open": n_open,
+            "lit": 1.0 if hot else 0.15,
+            "scale": 1.25 if hot else 1.0,
+            "hot": hot,
+            "status": f"{n_open} requests open" if hot else "idle",
+        }
+        nodes.append(row)
+        labels.append({
+            "id": sid, "label": label, "x": nx, "y": ny, "z": nz,
+            "hot": hot, "color": color, "open": n_open, "status": row["status"],
+        })
+    return nodes, labels
+
+
+def harvest_target_of(
+    unit: dict[str, Any], radius: float | None = None
+) -> list[float] | None:
+    sid = normalize_harvest_source(unit.get("action"), unit.get("current_task") or unit.get("task"))
+    if not sid:
+        return None
+    x, y, z = source_world_pos(sid, radius)
+    return [x, y, z]
+
+
 def build_harvest_source_conduits(
     active: set[str] | None = None, radius: float | None = None
 ) -> list[dict[str, Any]]:
-    """Always place labeled edge source beacons; beam packets only when active."""
-    hot = set(active or ())
+    """Beam packets only when a harvest fetch is active. Labels are stashed for the view."""
+    hot = [sid for sid in select_harvest_sources({sid: 1 for sid in (active or ())}) ]
     out: list[dict[str, Any]] = []
     labels: list[dict[str, Any]] = []
     edge_r = float(radius) if radius else HARVEST_SOURCE_EDGE_R
-    for i, (sid, label, angle, color) in enumerate(HARVEST_SOURCES):
-        is_hot = sid in hot
+    taken: list[float] = []
+    for i, sid in enumerate(hot):
+        rec = harvest_source_record(sid, taken)
+        taken.append(rec["theta"])
+        label, color = rec["label"], rec["color"]
         # Spec space (x, y) on the ground maps to scene (x, -z).
-        x = edge_r * math.cos(angle)
-        z = -edge_r * math.sin(angle)
-        y = 3.0
+        x, y, z = source_world_pos(sid, edge_r, taken[:-1])
         nx, ny, nz = _clamp_conduit_coord(x, y, z)
         labels.append({
             "id": sid,
@@ -1456,26 +2094,12 @@ def build_harvest_source_conduits(
             "x": nx,
             "y": ny,
             "z": nz,
-            "hot": is_hot,
+            "hot": True,
             "color": color,
+            "open": 1,
+            "status": "1 requests open",
         })
-        out.append({
-            "id": f"source-beacon:{sid}",
-            "kind": "node",
-            "sx": nx, "sy": ny, "sz": nz,
-            "cx": nx, "cy": ny, "cz": nz,
-            "ex": nx, "ey": ny, "ez": nz,
-            "phase": (i * 0.23) % 1.0,
-            "speed": 0.0,
-            # Conduit fill multiplies scale by 0.0022. Target ~0.22/0.40 world units.
-            "scale": 180.0 if is_hot else 100.0,
-            "color": color if is_hot else "#7a6aad",
-            "source_id": sid,
-            "label": label,
-            "hot": is_hot,
-        })
-        if not is_hot:
-            continue
+        # Beacons are Pass C source_glass / source_emissive meshes, not conduit spheres.
         # Beam: packets from the edge source inward to the core while fetching.
         arc_y = max(ny, 0.5) + 2.6
         cx, cy, cz = _clamp_conduit_coord(nx * 0.5, arc_y, nz * 0.5)
@@ -1517,6 +2141,41 @@ def _ascii_glyphs(text: object) -> str:
     return " ".join(out.split())
 
 
+def orb_result_titles(snap: dict[str, Any] | None, limit: int = 8) -> list[str]:
+    """Recent harvest titles for the results orbit, as 'Source  title'."""
+    if not isinstance(snap, dict):
+        return []
+    receipts = snap.get("recent_receipts")
+    if not isinstance(receipts, list):
+        metrics = snap.get("metrics") if isinstance(snap.get("metrics"), dict) else {}
+        receipts = metrics.get("recent_receipts") if isinstance(metrics, dict) else []
+    if not isinstance(receipts, list):
+        return []
+    labels: dict[str, str] = {}
+    out: list[str] = []
+    seen: set[str] = set()
+    for row in reversed(receipts):
+        if not isinstance(row, dict):
+            continue
+        if row.get("ok") is False:
+            continue
+        meta = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        title = _ascii_glyphs(meta.get("title") or row.get("title"))
+        if not title:
+            continue
+        sid = normalize_harvest_source(meta.get("action"), row.get("source") or meta.get("source"))
+        source = harvest_source_label(sid) if sid else labels.get(sid, "")
+        text = f"{source}  {title}" if source else title
+        text = " ".join(text.split())
+        if text in seen:
+            continue
+        seen.add(text)
+        out.append(text)
+        if len(out) >= limit:
+            break
+    return out
+
+
 def _receipt_epoch(at: object) -> float | None:
     try:
         stamp = datetime.fromisoformat(str(at))
@@ -1533,8 +2192,9 @@ def build_glyph_trails(
 ) -> list[dict[str, Any]]:
     """Trails for harvest results minted in the last GLYPH_TRAIL_LIFE_S seconds.
 
-    Snapshot only: each ok harvester receipt that names a title and a known
-    source gives one trail (title lane, URL lane). No title, no trail.
+    Snapshot only: each ok harvester receipt that names a title and a
+    resolvable harvest source gives one trail (title lane, URL lane).
+    No title, no trail.
     """
     try:
         now = float(snapshot_ts) if snapshot_ts is not None else None
@@ -1556,9 +2216,12 @@ def build_glyph_trails(
         if not title:
             continue
         sid = normalize_harvest_source(meta.get("action"), r.get("source"))
+        if not sid:
+            continue
         origin = origins.get(sid)
         if origin is None:
-            continue
+            x, y, z = source_world_pos(sid)
+            origin = {"color": harvest_source_color(sid), "x": x, "y": y, "z": z}
         minted = _receipt_epoch(r.get("at"))
         if minted is None:
             continue
@@ -1668,6 +2331,12 @@ def build_conduits(
         ))
         nid = str(node.get("node_id") or f"node-{i}")
         node_map[nid] = (nx, ny, nz, color)
+        # An idle hive node (a listening bastion port, a memory crystal, a
+        # merkle root) has no visual in the motion brief. Drawn at the hive's own
+        # coordinates, its beacon and stream were the lilac dots scattered on
+        # and between the rings. Only a node with something happening draws.
+        if not hot:
+            continue
         out.append({
             "id": f"beacon:{nid}",
             "kind": "node",
@@ -1676,12 +2345,12 @@ def build_conduits(
             "ex": nx, "ey": ny, "ez": nz,
             "phase": (i * 0.19) % 1.0,
             "speed": 0.0,
-            "scale": 1.65 if hot else 1.25,
+            "scale": 1.65,
             "color": color,
         })
-        pkt_count = 5 if hot else 2
-        speed = 1.05 if hot else 0.42
-        arc_y = max(ny, 0.4) + (2.4 if hot else 1.35)
+        pkt_count = 5
+        speed = 1.05
+        arc_y = max(ny, 0.4) + 2.4
         cx, cy, cz = _clamp_conduit_coord(nx * 0.5, arc_y, nz * 0.5)
         for k in range(pkt_count):
             if len(out) >= MAX_CONDUIT_INSTANCES:
@@ -1694,7 +2363,7 @@ def build_conduits(
                 "ex": 0.0, "ey": 0.0, "ez": 0.0,
                 "phase": ((k / pkt_count) + i * 0.11) % 1.0,
                 "speed": speed,
-                "scale": 0.86 if hot else 0.58,
+                "scale": 0.86,
                 "color": color,
             })
 
@@ -1838,14 +2507,45 @@ def build_frame(
     fx_events: list[dict[str, Any]] | None = None,
     receipts: list[dict[str, Any]] | None = None,
     snapshot_ts: float | None = None,
+    selected_id: str | None = None,
+    snap: dict[str, Any] | None = None,
+    tok_rate: float = 0.0,
 ) -> dict[str, Any]:
     report = report or load_mesh_report()
-    units, layout = place_band_units(list(units)[:MAX_OVERSEER_UNITS], snapshot_ts)
-    assigned = assign_lods(units, camera_distance, viewport_h, prev_lods, target=target)
-    assigned = enforce_budget(assigned, report)
-    fetches = open_fetch_counts(assigned, nodes)
-    for u in assigned:
+    units = list(units)[:MAX_OVERSEER_UNITS]
+    session = None
+    if isinstance(snap, dict):
+        session = snap.get("_freeflow_session")
+    if session is not None:
+        session.sync(units, snap, now=snapshot_ts)
+        layout = session.frame_extras(snap)
+    else:
+        from arelis.ui.overseer_freeflow import layout_static, resolve_egress_muted
+        layout = layout_static(len(units))
+        layout["egressMuted"] = resolve_egress_muted(snap)
+        layout["gates"] = []
+        layout["links"] = []
+        layout["memoryMotes"] = []
+        layout["toolSparks"] = []
+        # Keep incoming positions. Band orbits no longer place the swarm.
+    fetches = open_fetch_counts(units, nodes)
+    threat_open = threat_is_open(units, nodes)
+    opens = source_open_counts(units, nodes)
+    source_nodes, source_labels = build_source_nodes(opens, radius=layout["sourceRadius"])
+    scale_k = float(layout.get("scaleK") if layout.get("scaleK") is not None else 1.0)
+    for i, u in enumerate(units):
         u["open_fetches"] = fetches.get(str(u.get("unit_id") or ""), 0)
+        u["scaleK"] = scale_k
+        u["scale"] = view_scale(u, scale_k)
+        u["unit_index"] = i
+        u["threat_dim"] = bool(threat_open and not unit_engaged_defense(u))
+        tgt = harvest_target_of(u, layout["sourceRadius"])
+        if tgt:
+            u["harvest_target"] = tgt
+    apply_tentacle_layout(units)
+    assigned = assign_lods(units, camera_distance, viewport_h, prev_lods, target=target)
+    assigned = apply_lod_policy(assigned, selected_id=selected_id)
+    assigned = enforce_budget(assigned, report)
     buckets = build_buckets(assigned)
     budget = budget_from_buckets(buckets, report)
     source_active = active_harvest_sources(assigned, nodes)
@@ -1856,12 +2556,12 @@ def build_frame(
         active_sources=source_active,
         source_radius=layout["sourceRadius"],
     )
-    source_labels = list(getattr(build_harvest_source_conduits, "last_labels", []) or [])
     glyph_trails = build_glyph_trails(receipts, snapshot_ts)
     prev = {str(u.get("unit_id")): int(u["lod"]) for u in assigned if not u.get("culled")}
     for u in assigned:
         if u.get("culled"):
             prev[str(u.get("unit_id"))] = int(u["lod"])
+    orb = orb_state(snap, tok_rate)
     return {
         "units": assigned,
         "buckets": buckets,
@@ -1869,10 +2569,23 @@ def build_frame(
         "prevLods": prev,
         "conduits": conduits,
         "sourceLabels": source_labels,
+        "sourceNodes": source_nodes,
         "activeSources": sorted(source_active),
         "glyphTrails": glyph_trails,
-        "bands": layout["bands"],
-        "perimeter": layout["perimeter"],
+        "bands": layout.get("bands") or [],
+        "perimeter": layout.get("perimeter", 44.0),
+        "hiveActivity": hive_activity(fetches),
+        "threatOpen": threat_open,
+        "orb": orb,
+        "egressMuted": bool(layout.get("egressMuted")),
+        "gates": layout.get("gates") or [],
+        "links": layout.get("links") or [],
+        "memoryMotes": layout.get("memoryMotes") or [],
+        "toolSparks": layout.get("toolSparks") or [],
+        "barrier": layout.get("barrier") or {"cx": 0.0, "cy": 0.5, "cz": 0.0, "a": 38.0, "h": 13.0},
+        "fieldEdge": layout.get("fieldEdge") or [],
+        "insideCap": layout.get("insideCap"),
+        "scaleK": layout.get("scaleK"),
     }
 
 
@@ -2052,8 +2765,9 @@ def hud_mask_rects(
 
 # Dock column (Iris rank 3): 360 wide, 24 from the right edge, 16 gap to the well.
 DOCK_WIDTH = 360.0
-DOCK_EDGE = 24.0
 DOCK_GAP = 16.0
+HUD_HEADER_H = 72.0
+HUD_DISPATCH_H = 48.0 + 20.0 + 12.0
 
 
 def _free_viewport_edges(
@@ -2061,17 +2775,19 @@ def _free_viewport_edges(
     height: float,
     inspector_open: bool,
 ) -> tuple[float, float, float, float]:
+    # Mirrors OverseerView.freeViewportRect: full-bleed scene, 2 percent
+    # margin, header text on top, Dispatch bar at the bottom, and the dock
+    # column on the right only while it is open. The drawers never count.
     w = max(1.0, float(width))
     h = max(1.0, float(height))
-    left = min(440.0, w * 0.26)
-    top = 86.0
-    # Closed: keep the prior 20 px right margin (rank 5 owns the 24 gutter).
-    # Open: exclude the dock column so framing never sits under the panel.
-    right_inset = (DOCK_EDGE + DOCK_WIDTH + DOCK_GAP) if inspector_open else 20.0
-    right = w - right_inset
+    mx = float(round(w * 0.02))
+    my = float(round(h * 0.02))
+    left = mx
+    top = my + HUD_HEADER_H
+    right = w - ((mx + DOCK_WIDTH + DOCK_GAP) if inspector_open else mx)
     if right <= left:
         right = w
-    bottom = max(top + 1.0, h - 230.0)
+    bottom = max(top + 1.0, h - my - HUD_DISPATCH_H)
     return left, top, right, bottom
 
 
@@ -2194,7 +2910,13 @@ def fetch_snapshot(host: str, port: int, token: str, opener: Any = None) -> dict
     get = opener or urllib.request.urlopen
     with get(req, timeout=2.0) as resp:
         raw = resp.read()
-    return json.loads(raw.decode("utf-8"))
+    data = json.loads(raw.decode("utf-8"))
+    if not isinstance(data, dict):
+        return data
+    if "egress_muted" not in data:
+        from arelis.ui.overseer_freeflow import resolve_egress_muted
+        data["egress_muted"] = resolve_egress_muted(data)
+    return data
 
 
 
@@ -2228,7 +2950,9 @@ def resolve_hud_command(
     retire_unit for the selected id only (hive.retire_unit pops that id
     or returns False). Emergency halt never includes restore. Camera
     focus frames the selected unit locally from snapshot geometry and
-    does not post a hive route.
+    does not post a hive route. coreFocus and exit_core are also local
+    view actions: they move the camera only, and never post a hive
+    route or write a status under the composer.
     """
     data = coerce_hud_payload(payload)
     selected = selected_unit if isinstance(selected_unit, dict) else {}
@@ -2269,6 +2993,15 @@ def resolve_hud_command(
             "local": True,
         }
     if name in {"fit_swarm", "fitSwarm"}:
+        return {
+            "ok": True,
+            "path": None,
+            "body": None,
+            "status": "",
+            "name": name,
+            "local": True,
+        }
+    if name in {"core_focus", "coreFocus", "exit_core", "exitCore"}:
         return {
             "ok": True,
             "path": None,

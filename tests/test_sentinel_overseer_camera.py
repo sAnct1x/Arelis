@@ -73,8 +73,8 @@ def test_overseer_pitch_passes_approved_close_mid_wide() -> None:
     assert overseer_runtime.pitch_deg(6.0) == 22.0
     assert overseer_runtime.pitch_deg(9.0) == 22.0
     assert abs(overseer_runtime.pitch_deg(32.0) - 36.0) < 1e-9
-    assert abs(overseer_runtime.pitch_deg(96.0) - 55.0) < 1e-9
-    assert overseer_runtime.pitch_deg(110.0) == 55.0
+    assert abs(overseer_runtime.pitch_deg(overseer_runtime.WIDE_DISTANCE) - 55.0) < 1e-9
+    assert overseer_runtime.pitch_deg(overseer_runtime.ZOOM_MAX) == 55.0
     linear_mid = 22.0 + overseer_runtime.zoom_t(32.0) * (55.0 - 22.0)
     assert abs(overseer_runtime.pitch_deg(32.0) - linear_mid) > 1.0
     assert overseer_runtime.framing_name(7.0) == "close"
@@ -422,7 +422,7 @@ def test_overseer_frame_dump_reports_selected_instance(qt_app) -> None:
     assert parsed.get("selectedId") == "SNT-HRV-001"
     assert parsed.get("selectedCaste") == "harvester"
     assert "harvester" in parsed.get("modelKey", "")
-    assert "hull" in parsed.get("modelKey", "")
+    assert "head" in parsed.get("modelKey", "")
     pos = overseer_runtime.unit_view_pos(_units()[1])
     assert abs(float(parsed["instanceX"]) - pos[0]) < 1e-4
     assert abs(float(parsed["instanceY"]) - pos[1]) < 1e-4
@@ -443,7 +443,8 @@ def test_overseer_frame_dump_reports_selected_instance(qt_app) -> None:
 @isolated_render()
 def test_overseer_wheel_eases_from_default_frame_onto_curve_and_back(qt_app) -> None:
     """The wheel leaves the fitted default frame without a pitch jump, meets
-    the 55 deg wide mark on the third notch, and backs out to the same frame."""
+    the curve on the third notch (the 55 deg wide mark, or the default frame
+    when that sits inside it), and backs out to the same frame."""
     view, root = _view(qt_app)
     swarm = overseer_runtime.layout_swarm(100)
     for w, h in ((2110, 1306), (1028, 749)):
@@ -452,7 +453,8 @@ def test_overseer_wheel_eases_from_default_frame_onto_curve_and_back(qt_app) -> 
         root.applyFrame(overseer_runtime.build_frame(swarm, 96.0, float(h), nodes=[]))
         qt_app.processEvents()
         d0 = float(root.property("overviewDistance"))
-        assert d0 > overseer_runtime.WIDE_DISTANCE, (w, d0)
+        # Full-bleed scene: the fit never comes closer than the spec frame.
+        assert d0 >= overseer_runtime.DEFAULT_CAMERA_DISTANCE - 1e-3, (w, d0)
         home = [float(root.property(k)) for k in ("cameraTargetY", "cameraTargetZ")]
         pitches = [float(root.property("cameraPitch"))]
         for notch in range(1, 21):
@@ -462,7 +464,10 @@ def test_overseer_wheel_eases_from_default_frame_onto_curve_and_back(qt_app) -> 
             want = overseer_runtime.zoom_pose(notch, d0)
             assert abs(d - want[0]) < 1e-3 and abs(pitches[-1] - want[1]) < 1e-3, (w, notch)
         assert pitches[1] < pitches[2] < overseer_runtime.PITCH_WIDE_DEG - 1.0, (w, pitches)
-        assert abs(pitches[3] - overseer_runtime.PITCH_WIDE_DEG) < 1e-3, (w, pitches)
+        # The ease lands on the curve at the wide mark, or at the default
+        # frame itself when that sits just inside it (full-bleed spec frame).
+        mark = overseer_runtime.pitch_deg(min(overseer_runtime.WIDE_DISTANCE, d0))
+        assert abs(pitches[3] - mark) < 1e-3, (w, pitches)
         while str(root.property("cameraMode")) != "overview":
             root.applyWheel(1)
             pitches.append(float(root.property("cameraPitch")))

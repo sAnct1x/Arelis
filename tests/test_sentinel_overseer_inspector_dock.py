@@ -121,14 +121,14 @@ def _show_hud(qt_app, width: int = 2110, height: int = 1306):
 @isolated_render(software=True)
 def test_overseer_inspector_docks_outside_well_without_unavailable(qt_app) -> None:
     """One behaviour change: docked inspector only when selected, no unavailable rows."""
-    # Free well loses the dock column (360 + 24 edge + 16 gap) when open.
+    # Free well loses the dock column (360 + 2% edge + 16 gap) when open.
     open_c = overseer_runtime.free_viewport_center(2110, 1306, True)
     closed_c = overseer_runtime.free_viewport_center(2110, 1306, False)
-    # Iris wants well centre x 1055 once the swarm gutter is 400 (rank 5).
-    # With today's swarm width 440 the open centre is 1075; the right edge is 1710.
-    assert abs(open_c[0] - 1075.0) < 1.0
+    # Full-bleed scene (chat off): the left edge is the 42 px margin, not a
+    # list column, so the open centre is 867 and the right edge is 1692.
+    assert abs(open_c[0] - 867.0) < 1.0
     assert open_c[0] < closed_c[0]
-    assert abs(overseer_runtime._free_viewport_edges(2110, 1306, True)[2] - 1710.0) < 1.0
+    assert abs(overseer_runtime._free_viewport_edges(2110, 1306, True)[2] - 1692.0) < 1.0
     assert overseer_runtime.free_viewport_shift(2110, 1306, True) != overseer_runtime.free_viewport_shift(
         2110, 1306, False
     )
@@ -182,10 +182,10 @@ def test_overseer_inspector_docks_outside_well_without_unavailable(qt_app) -> No
     assert panel is not None
     assert bool(panel.property("visible")) is True
     assert float(panel.property("width") or 0) == 360
-    # 24 px from the right edge of the 2110 window.
+    # The 2% overlay margin (42 px) from the right edge of the 2110 window.
     right_edge = float(panel.property("x") or 0) + float(panel.property("width") or 0)
-    assert abs(right_edge - (2110 - 24)) < 1.5
-    assert float(panel.property("x") or 0) >= 1710 - 1  # well ends at 1710
+    assert abs(right_edge - (2110 - 42)) < 1.5
+    assert float(panel.property("x") or 0) >= 1692 - 1  # well ends at 1692
     height = float(panel.property("height") or 0)
     assert height > 200
     assert height < 900  # hugs content; no 240 px empty band forcing a tall plate

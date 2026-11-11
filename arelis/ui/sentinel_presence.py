@@ -102,9 +102,11 @@ def _chat_shortcuts(owner: Any) -> list[Any]:
 
 def _snapshot_chat_for_overseer(owner: Any) -> dict[str, Any]:
     targets = _chat_suspend_targets(owner)
+    voice = getattr(owner, "voice_controller", None)
     return {
         "widgets": [(w, w.isHidden(), w.isEnabled()) for w in targets],
         "shortcuts": [(s, s.isEnabled()) for s in _chat_shortcuts(owner)],
+        "wake_was_on": voice is not None and not getattr(voice, "_wake_suspended", False),
     }
 
 
@@ -127,19 +129,29 @@ def _apply_chat_suspend(owner: Any) -> None:
 def suspend_chat_for_overseer(owner: Any) -> None:
     """Hide and disable the main-window chat, and park per-token painting.
 
-    A theme switch while the Overseer is still open can show chat again.
-    Calling this a second time re-applies the hide without replacing the
-    first snapshot, whose enabled flags are what close restores.
+    Also stops the wake word. WindowTurn._on_submit ignores new turns while
+    _overseer_chat_suspend is set. A theme switch while the Overseer is still
+    open can show chat again. Calling this a second time re-applies the hide
+    without replacing the first snapshot, whose enabled flags and wake state
+    are what close restores.
     """
     if owner is None:
         return
     if getattr(owner, "_overseer_chat_suspend", None) is None:
         owner._overseer_chat_suspend = _snapshot_chat_for_overseer(owner)
+        voice = getattr(owner, "voice_controller", None)
+        if voice is not None:
+            voice.stop_all()
     _apply_chat_suspend(owner)
 
 
 def restore_chat_after_overseer(owner: Any) -> None:
-    """Show chat again from the current messages and theme, not the pre-open snapshot."""
+    """Show chat again from the current messages and theme, not the pre-open snapshot.
+
+    Also resumes the wake word if it was on when the Overseer opened. Called
+    from close and quit only, so a refresh error does not turn chat back on
+    while the window is still open.
+    """
     if owner is None:
         return
     snap = getattr(owner, "_overseer_chat_suspend", None)
@@ -156,6 +168,10 @@ def restore_chat_after_overseer(owner: Any) -> None:
         if shortcut is None or not isValid(shortcut):
             continue
         shortcut.setEnabled(enabled)
+
+    voice = getattr(owner, "voice_controller", None)
+    if voice is not None and snap.get("wake_was_on"):
+        voice.resume_wake()
 
     conv = getattr(owner, "conversation", None)
     # Isolated Overseer tests use a bare QWidget as the owner. There is no

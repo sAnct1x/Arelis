@@ -24,6 +24,9 @@ comes back for the current theme when the window closes, including a
 reply that arrived while it was open. Esc or the close mote on the inset
 closes it. The close mote is drawn inside the 3D scene, top right; Tab reaches
 it and Enter or Space presses it.
+Chat is off while the window is open, and the scene uses the whole window:
+the unit list and the event log are drawers, and missions go through the
+Dispatch bar. See [Overseer: full window, chat off](overseer-full-window.md).
 Closing the window saves the scene's compiled shaders to
 `sentinel/overseer/pipeline.cache` in the Arelis data folder, so the next start
 opens it without compiling them again. A file from another Qt version or graphics
@@ -62,30 +65,31 @@ result with no title shows no text. At most four results fly at once
 (a fifth ends the oldest), each line is cut at 60 characters, and text
 from every source is the same size. The GPU moves the letters, so the
 CPU only builds them once when a result arrives. Idle units (patrolling
-or docked) fly around the core on tilted bands, one band per caste:
-Sanitizers closest, then Wardens with Stalkers, then Harvesters. Each band
-has its own tilt and height and splits into two to four side-by-side lanes
-as its caste grows (one more lane per twelve units), and the bands widen
-with more units. Inner lanes go round a little faster. Tripwires ride a
-ring at the outer edge, and the sources sit just past it. Units that are
-working keep the position the hive reports. Where a unit sits on its lane
-follows the snapshot clock, so the view needs no extra timer and draws all
-lanes as one line set plus the edge ring. The Overseer shows up to 128
-units. The glow
+or docked) move in a free field around the core, not on caste rings.
+They may come close; body and tentacle collision volumes keep them from
+passing through each other.
+An oval barrier shell marks the hive boundary, with gateways on the real
+outbound connections. Sanitizers stay in the inner patrol, Wardens near
+the gates, Tripwires as pickets just outside the shell beside each gate,
+and Stalkers farther out. Harvesters leave through a source gate to gather
+and come back the same way. The sources sit just past the picket line.
+When outbound traffic is muted, the gates show as shut. The Overseer
+shows up to 128 units, and above 100 some idle units dock in the core so
+the field does not get too crowded. The glow
 writes clip position from that waved mesh; the lens writes clip
 position from the mesh as modeled, so those unshaded parts stay on
 the units instead of stretching into a covering plate or stray streaks. The wheel,
 trackpad, and + / - keys dolly the camera between the default view and
 6 m, with the approved rubber band at the near end. Each time the window opens, the camera
 starts on the default view: the wide, low frame from the design (about
-31.7 degrees down, 95 m or more from a point just in front of the hive)
-pulled back only as far as the window needs so the whole edge ring, the
-outer band lanes, and all four edge sources with their names sit clear of
-the top bar, Swarm list, inspector, and console. A small window (such as
-1028 x 749) shows the same frame from farther away. The first three wheel
-notches ease out of the default view: each one tilts the camera by the same
-step (about 7.8 degrees) and closes the distance evenly, so the third
-notch lands on the 55 degree, 96 m wide mark of the zoom curve below.
+31.7 degrees down, 107 m from a point just in front of the hive)
+pulled back only as far as the window needs so the whole field edge and
+the four sources sit clear of the top bar, Swarm list, inspector, and
+console. A small window (such as 1028 x 749) shows the same frame from
+farther away. The first three wheel notches ease out of the default view:
+each one tilts the camera by the same step and closes the distance evenly,
+so the third notch lands on the 55 degree, 108 m wide mark of the zoom
+curve below.
 Scrolling back out retraces those steps and stops on the default view.
 Opening the window follows the entry
 timing (mote, edge, fill, reveal, then panels); closing reverses it.
@@ -129,9 +133,9 @@ behind those plates instead of drawing through list rows or the
 inspector. Unselected rows use that same fill (selected rows stay
 `#2a1a4a`). Selecting a unit aims the camera at that unit's snapshot position
 (not the hive). Wheel and trackpad dolly along the view axis at 35 mm
-with a factor of 1.18 per notch past the 96 m wide mark, rubber-banded
+with a factor of 1.18 per notch past the 108 m wide mark, rubber-banded
 8 percent past the 6 m limit. Pitch follows the approved marks: 22 degrees across 6 to
-9 m, 36 degrees at 32 m, and 55 degrees at 96 m. Focus
+9 m, 36 degrees at 32 m, and 55 degrees at 108 m. Focus
 dollies to 7 m (inside the 6 to 9 m close band) on the selected unit.
 Fit swarm sets camera mode to fit and returns to the default view described above (local, no backend POST), so the whole hive and every source label are on screen again. While the mode is fit, live snapshot refreshes and inspector selection changes do not move the camera target back onto the selected unit; Focus sets camera mode to follow and frames that unit again. The inspector stays on the selected unit either way. A wheel hit-point, when set, keeps that
 world point fixed (new target = P + (target - P) * (d_new / d_old)).
@@ -213,7 +217,7 @@ The strip updates with each snapshot, not every frame.
 
 ### The event log
 
-The console at the bottom lists the hive's events, newest first, one line
+The event log (**Events**, bottom left, opens it above the Dispatch bar) lists the hive's events, newest first, one line
 each: the time, a ×N badge when the line repeats, the unit (in its caste
 colour), the message in plain words, and for repeats the first to last
 time on the right.
@@ -237,8 +241,8 @@ time on the right.
 
 ### The inspector dock
 
-When you select a unit, a 360 px panel docks on the right, 24 px from the
-window edge, sized to its content. It never floats over the swarm: the
+When you select a unit, a 360 px panel docks on the right, 2 percent of the
+window width from the edge, sized to its content. It never floats over the swarm: the
 camera recentres on the free well that excludes the dock column. With
 nothing selected the dock is gone; there is no empty "Select a unit"
 panel.

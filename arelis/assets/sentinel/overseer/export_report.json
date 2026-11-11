@@ -1,50 +1,50 @@
 [
   {
     "lod": 0,
-    "path": "/tmp/overseer-qt/sentinel_lod0.glb",
+    "path": "meshes/sentinel_head_lod0_mesh.mesh",
+    "note": "Pass E2: Iris head v2 (hard shingles, baked cavity). 15 trail + 2 hook + 2 pincer tentacles are a separate instanced draw.",
     "raw_by_part": {
-      "hull": 66878,
-      "emissive": 6684,
-      "lens": 180
+      "head": 13092,
+      "tentacle": 1792
     },
     "tris_by_part": {
-      "lod0_hull": 10882,
-      "lod0_emissive": 1087,
-      "lod0_lens": 28
+      "lod0_head": 13092,
+      "lod0_tentacle": 1792
     },
-    "tris": 11997,
-    "target": 12000
+    "strands": 19,
+    "tris": 47140,
+    "target": 47140
   },
   {
     "lod": 1,
-    "path": "/tmp/overseer-qt/sentinel_lod1.glb",
+    "path": "meshes/sentinel_head_lod1_mesh.mesh",
+    "note": "Pass E2 LOD1 head v2: 13 eyes, 11 trail + 2 hook tentacles.",
     "raw_by_part": {
-      "hull": 20630,
-      "emissive": 2332,
-      "lens": 140
+      "head": 6056,
+      "tentacle": 648
     },
     "tris_by_part": {
-      "lod1_hull": 3570,
-      "lod1_emissive": 403,
-      "lod1_lens": 32
+      "lod1_head": 6056,
+      "lod1_tentacle": 648
     },
-    "tris": 4005,
-    "target": 4000
+    "strands": 13,
+    "tris": 14480,
+    "target": 14480
   },
   {
     "lod": 2,
-    "path": "/tmp/overseer-qt/sentinel_lod2.glb",
+    "path": "meshes/sentinel_head_lod2_mesh.mesh",
+    "note": "Pass E2 LOD2 head v2: 9 eyes, 8 trail + 2 hook ribbons.",
     "raw_by_part": {
-      "hull": 2286,
-      "emissive": 1324,
-      "lens": 20
+      "head": 1192,
+      "tentacle": 66
     },
     "tris_by_part": {
-      "lod2_hull": 628,
-      "lod2_emissive": 363,
-      "lod2_lens": 20
+      "lod2_head": 1192,
+      "lod2_tentacle": 66
     },
-    "tris": 1011,
-    "target": 1000
+    "strands": 10,
+    "tris": 1852,
+    "target": 1852
   }
 ]

@@ -4,6 +4,10 @@ import QtQuick.Controls
 Item {
     id: hud
     objectName: "OverseerHud"
+    // Fill the view when parented. Isolated tests that need a fixed
+    // official size must reset anchors.fill first; leaving it bound can
+    // pin the width to the offscreen default (1024 on Windows) and drop
+    // the last summary numbers.
     anchors.fill: parent
 
     property var pills: ({})
@@ -24,6 +28,14 @@ Item {
     property string commandStatus: ""
     property bool logPaused: false
     property bool logRepeats: true
+    // Full-window layout (Christopher, Nov 9 10:28 PM): the scene runs edge to
+    // edge under every control. The unit list and the event list are overlay
+    // drawers, closed by default, so opening one never resizes the scene.
+    property bool drawerOpen: false
+    property bool eventsOpen: false
+    // Overlays keep a 2 percent margin from the window edge at any size.
+    readonly property real marginX: Math.round(width * 0.02)
+    readonly property real marginY: Math.round(height * 0.02)
 
     signal searchEdited(string text)
     signal groupModeChosen(string mode)
@@ -39,6 +51,9 @@ Item {
     // fragment (544p list/inspector crops). Opaque designed RGB contains
     // the scene without clipping or hiding unit geometry in the well.
     readonly property color panelFill: "#0e0920"
+    // Overlay plate (GAP.md chat-off layout): #140b20 at about 85 percent.
+    readonly property color plateFill: Qt.rgba(0x14 / 255, 0x0b / 255, 0x20 / 255, 0.85)
+    readonly property color plateEdge: Qt.rgba(0xa4 / 255, 0x73 / 255, 0xf0 / 255, 0.4)
 
     readonly property string warrantsTooltip: "Evidence receipts in memory (includes up to 120 from earlier runs)"
 
@@ -82,61 +97,15 @@ Item {
         logList.positionViewAtBeginning()
     }
 
-    // One strip block. A chip (narrow windows) keeps the 56 px block but drops
-    // the label and centres a one-line icon plus value; its tooltip carries
-    // the full label and detail.
-    component StripBlock: Rectangle {
-        id: block
-        property string label: ""
-        property bool chip: false
-        property string tip: ""
-        default property alias content: body.data
-        height: 56
-        radius: 12
-        color: "#140d2a"
-        border.color: "#2f2358"
-        border.width: 1
-        Accessible.role: Accessible.StaticText
-        Accessible.description: tip
-        HoverHandler { id: blockHover; enabled: block.tip.length > 0 }
-        ToolTip.text: tip
-        ToolTip.visible: tip.length > 0 && blockHover.hovered
-        ToolTip.delay: 400
-        Text {
-            x: 16
-            y: 6
-            visible: !block.chip
-            text: block.label.toUpperCase()
-            color: "#a99bd6"
-            font.pixelSize: 12
-            font.weight: Font.Medium
-        }
-        Item {
-            id: body
-            x: block.chip ? 10 : 16
-            y: block.chip ? 14 : 22
-            width: block.width - 2 * x
-            height: 28
-        }
-    }
-
-    // Chip value: one line, vertically centred in the chip body.
-    component ChipRow: Row {
-        property string value: ""
-        property color valueColor: "#e0d4ff"
-        property bool mono: false
-        default property alias icon: iconBox.data
-        spacing: 6
-        height: 28
-        Item { id: iconBox; width: 12; height: 12; anchors.verticalCenter: parent.verticalCenter }
-        Text {
-            anchors.verticalCenter: parent.verticalCenter
-            text: parent.value
-            color: parent.valueColor
-            font.pixelSize: parent.mono ? 14 : 18
-            font.weight: parent.mono ? Font.Normal : Font.DemiBold
-            font.family: parent.mono ? "monospace" : Qt.application.font.family
-        }
+    // One summary piece: borderless text, a dot separator before all but the first.
+    component Piece: Text {
+        property int index: 0
+        property string body: ""
+        color: "#cdb2f7"
+        font.family: hud.titleFamily
+        font.pixelSize: summary.pieceSize
+        text: (index === 0 ? "" : "·  ") + body
+        onTextChanged: summary.refit()
     }
 
     readonly property var casteOrder: [
@@ -231,318 +200,371 @@ Item {
 
     onSelectedUnitIdChanged: clearRetireArm()
 
-    Rectangle {
+    // Header (GAP item 10): overlay text, no plates. "Sentinels" and one
+    // summary line that carries every number the old status strip showed.
+    // Pieces drop from the right when the line would run into Emergency stop;
+    // the tooltip and Accessible description always carry the full line.
+    FontLoader {
+        id: zenKakuRegular
+        source: Qt.resolvedUrl("../../../ui/fonts/ZenKakuGothicNew-Regular.ttf")
+    }
+    FontLoader {
+        id: zenKakuMedium
+        source: Qt.resolvedUrl("../../../ui/fonts/ZenKakuGothicNew-Medium.ttf")
+    }
+    FontLoader {
+        id: spaceMonoRegular
+        source: Qt.resolvedUrl("../../../ui/fonts/SpaceMono-Regular.ttf")
+    }
+    readonly property string titleFamily: zenKakuRegular.status === FontLoader.Ready
+                                          ? zenKakuRegular.name : "Zen Kaku Gothic New"
+    readonly property string titleMediumFamily: zenKakuMedium.status === FontLoader.Ready
+                                                ? zenKakuMedium.name : titleFamily
+    readonly property string monoFamily: spaceMonoRegular.status === FontLoader.Ready
+                                         ? spaceMonoRegular.name : "Space Mono"
+    // Starting pixel size for the summary line. The line shrinks as far as
+    // summaryMinSize so every number still fits at the official width when
+    // the face is wider (Windows software renderer, missing desk face).
+    property int summaryBaseSize: 14
+    property int summaryMinSize: 12
+    // Tokens per second from the local model; 0 while nothing streams.
+    property int tokRate: 0
+    property bool coreMode: false
+    // Replay strip: [seq, t, kind] per event, t in epoch seconds.
+    property var replayTicks: []
+
+    function casteCountsText() {
+        var parts = []
+        for (var i = 0; i < casteOrder.length; i++) {
+            var n = stripCount(casteOrder[i][0])
+            if (n !== "0")
+                parts.push(casteOrder[i][1] + " " + n)
+        }
+        return parts.join(", ")
+    }
+
+    function fetchingCount() {
+        var engaged = pills && pills.engaged ? pills.engaged.harvester : undefined
+        return engaged === undefined ? "?" : String(engaged)
+    }
+
+    function threatPiece() {
+        var n = threatCount()
+        if (n < 0)
+            return "threats not reported"
+        if (n === 0)
+            return "0 threats"
+        return n + (n === 1 ? " threat" : " threats")
+    }
+
+    function lastEventText(event) {
+        return event ? "last " + String(event.time || "").slice(0, 8) + " " + String(event.summary || "")
+                     : "no events yet"
+    }
+
+    function summaryText() {
+        return stripCount("units") + " units (" + casteCountsText() + ") · "
+            + fetchingCount() + " fetching · " + threatPiece() + " · "
+            + defenderWords() + " · " + stripCount("warrants") + " warrants · "
+            + lastEventText(pills ? pills.lastEvent : null) + " · " + statusLine
+    }
+
+    Item {
         id: topBar
         objectName: "OverseerPillBar"
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
-        height: 86
-        color: hud.panelFill
-        border.color: "#6d4ad8"
-        border.width: 1
+        anchors.leftMargin: hud.marginX
+        anchors.rightMargin: hud.marginX
+        anchors.topMargin: hud.marginY
+        height: 72
 
         Column {
             id: titleColumn
             objectName: "OverseerTitle"
             anchors.left: parent.left
-            anchors.leftMargin: 18
-            anchors.verticalCenter: parent.verticalCenter
+            anchors.top: parent.top
             spacing: 2
             Text {
                 text: "Sentinels"
-                color: "#d8c8ff"
+                color: "#e8dcfb"
+                font.family: hud.titleMediumFamily
                 font.pixelSize: 28
+                font.weight: Font.Medium
             }
+            // Summary line: borderless text pieces in #cdb2f7.
             Row {
-                spacing: 8
-                Rectangle { width: 8; height: 8; radius: 4; color: "#7ee0a8"; anchors.verticalCenter: parent.verticalCenter }
-                Text {
-                    text: hud.statusLine
-                    color: "#a99bd6"
-                    font.pixelSize: 13
+                id: summary
+                objectName: "OverseerSummary"
+                readonly property real room: coreButton.x - 24
+                readonly property var pieces: [unitsPiece, fetchPiece, threatsPiece, defendersPiece,
+                                               warrantsPiece, lastEventPiece, healthPiece]
+                property int pieceSize: 14
+                property var pieceWidths: [0, 0, 0, 0, 0, 0, 0]
+                TextMetrics { id: summaryMetrics }
+                function refit() {
+                    var size
+                    for (size = hud.summaryBaseSize; size >= hud.summaryMinSize; size--) {
+                        var ws = []
+                        var total = 0
+                        for (var k = 0; k < pieces.length; k++) {
+                            summaryMetrics.font.family = pieces[k].font.family
+                            summaryMetrics.font.pixelSize = size
+                            summaryMetrics.text = pieces[k].text
+                            ws[k] = summaryMetrics.width
+                            total += ws[k] + (k ? spacing : 0)
+                        }
+                        if (total <= room || size === hud.summaryMinSize) {
+                            pieceWidths = ws
+                            if (pieceSize !== size)
+                                pieceSize = size
+                            return
+                        }
+                    }
+                }
+                function fits(i) {
+                    var w = 0
+                    for (var k = 0; k <= i; k++)
+                        w += pieceWidths[k] + (k ? spacing : 0)
+                    return w <= room
+                }
+                spacing: 6
+                onRoomChanged: refit()
+                Component.onCompleted: refit()
+                Connections {
+                    target: hud
+                    function onPillsChanged() { summary.refit() }
+                    function onStatusLineChanged() { summary.refit() }
+                    function onSummaryBaseSizeChanged() { summary.refit() }
+                    function onTitleFamilyChanged() { summary.refit() }
+                }
+                Accessible.role: Accessible.StaticText
+                Accessible.name: "Summary"
+                Accessible.description: hud.summaryText()
+                HoverHandler { id: summaryHover }
+                ToolTip.text: hud.summaryText()
+                ToolTip.visible: summaryHover.hovered && !warrantsHover.hovered && !lastEventHover.hovered
+                ToolTip.delay: 400
+
+                Piece {
+                    id: unitsPiece
+                    objectName: "OverseerStrip_units"
+                    index: 0
+                    visible: summary.fits(0)
+                    body: hud.stripCount("units") + " units"
+                    Accessible.role: Accessible.StaticText
+                    Accessible.name: "Units by caste: " + hud.stripCount("units") + " total. " + hud.casteCountsText()
+                }
+                Piece {
+                    id: fetchPiece
+                    objectName: "OverseerStrip_fetching"
+                    index: 1
+                    visible: summary.fits(1)
+                    body: hud.fetchingCount() + " fetching"
+                }
+                Piece {
+                    id: threatsPiece
+                    objectName: "OverseerStrip_threats"
+                    index: 2
+                    visible: summary.fits(2)
+                    body: hud.threatPiece()
+                    color: hud.threatCount() > 0 ? "#ff6b9a" : "#cdb2f7"
+                    Accessible.role: Accessible.StaticText
+                    Accessible.name: "Threats: " + hud.threatValue() + " " + hud.threatWord()
+                }
+                Piece {
+                    id: defendersPiece
+                    objectName: "OverseerStrip_defenders"
+                    index: 3
+                    visible: summary.fits(3)
+                    body: hud.stripCount("warden") + " " + hud.defenderWords()
+                }
+                Piece {
+                    id: warrantsPiece
+                    objectName: "OverseerStrip_warrants"
+                    index: 4
+                    visible: summary.fits(4)
+                    body: hud.stripCount("warrants") + " warrants"
+                    Accessible.role: Accessible.StaticText
+                    Accessible.name: "Warrants: " + hud.stripCount("warrants")
+                    Accessible.description: hud.warrantsTooltip
+                    HoverHandler { id: warrantsHover }
+                    ToolTip.text: hud.warrantsTooltip
+                    ToolTip.visible: warrantsHover.hovered
+                    ToolTip.delay: 400
+                }
+                Piece {
+                    id: lastEventPiece
+                    objectName: "OverseerStrip_lastEvent"
+                    index: 5
+                    visible: summary.fits(5)
+                    readonly property var event: hud.pills ? hud.pills.lastEvent : null
+                    body: hud.lastEventText(event)
+                    Accessible.role: Accessible.Button
+                    Accessible.name: "Last event: " + (event ? event.time + " " + event.summary : "None yet")
+                    Accessible.onPressAction: lastEventArea.open()
+                    HoverHandler { id: lastEventHover }
+                    ToolTip.text: hud.lastEventTip(event)
+                    ToolTip.visible: lastEventHover.hovered
+                    ToolTip.delay: 400
+                    MouseArea {
+                        id: lastEventArea
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        function open() {
+                            hud.eventsOpen = true
+                            hud.showLogRow(lastEventPiece.event ? lastEventPiece.event.seq : undefined)
+                        }
+                        onClicked: open()
+                    }
+                }
+                Piece {
+                    id: healthPiece
+                    objectName: "OverseerStrip_health"
+                    index: 6
+                    visible: summary.fits(6)
+                    body: hud.statusLine
                 }
             }
         }
 
-        // Status strip (Iris FIX-LIST rank 1): five read-only blocks from the
-        // snapshot's numbers, updated with the snapshot only (no timers).
-        // Narrow windows (Vela): Threats and Defenders stay full size, the other
-        // three collapse to chips. Header height never changes; layout is
-        // bindings on width only.
         Item {
-            id: strip
-            objectName: "OverseerStatusStrip"
-            readonly property real gap: compact ? 12 : 16
-            readonly property real fullNeed: 152 + 288 + 548 + 104 + 240 + 4 * 16
-            readonly property real roomAt344: empButton.x - 16 - 344
-            readonly property bool compact: roomAt344 < fullNeed
-            readonly property real compactNeed: 152 + 288 + unitsBlock.width + warrantsBlock.width
-                                                + lastEventBlock.width + 4 * gap
-            // Start at the design's x 344; only a chip row that does not fit
-            // there moves up to 24 px after the health line.
-            anchors.left: parent.left
-            anchors.leftMargin: (!compact || roomAt344 >= compactNeed) ? 344
-                                : titleColumn.x + titleColumn.width + 24
+            id: coreButton
+            objectName: "OverseerCoreButton"
             anchors.right: empButton.left
-            anchors.rightMargin: 16
-            anchors.verticalCenter: parent.verticalCenter
-            height: 56
-            // A block that would not fit whole is left out, from the right.
-            function fits(i) {
-                var blocks = [threatsBlock, defendersBlock, unitsBlock, warrantsBlock, lastEventBlock]
-                var w = 0
-                for (var k = 0; k <= i; k++)
-                    w += blocks[k].width + (k ? gap : 0)
-                return w <= strip.width
+            anchors.rightMargin: 12
+            anchors.verticalCenter: empButton.verticalCenter
+            width: coreLab.implicitWidth + 16
+            height: 28
+            z: 5
+            Accessible.role: Accessible.Button
+            Accessible.name: hud.coreMode ? "Leave core view" : "Core"
+            Accessible.description: "Frame the orb close-up, or return to the overview"
+            Accessible.onPressAction: hud.hudCommand(hud.coreMode ? "exit_core" : "core_focus", {})
+            Text {
+                id: coreLab
+                anchors.centerIn: parent
+                text: "Core"
+                color: hud.coreMode ? "#f4efff" : "#cdb2f7"
+                font.pixelSize: 14
+                font.weight: hud.coreMode ? Font.DemiBold : Font.Medium
             }
-
-            Row {
-                spacing: strip.gap
-                StripBlock {
-                    id: threatsBlock
-                    objectName: "OverseerStrip_threats"
-                    visible: strip.fits(0)
-                    width: 152
-                    label: "Threats"
-                    tip: hud.threatsTip()
-                    border.color: hud.threatCount() > 0 ? "#ff6b9a"
-                                  : (hud.threatCount() === 0 ? "#2f6b55" : "#2f2358")
-                    Accessible.name: "Threats: " + hud.threatValue() + " " + hud.threatWord()
-                    Row {
-                        spacing: 8
-                        Text {
-                            id: threatNum
-                            text: hud.threatValue()
-                            color: hud.threatCount() > 0 ? "#ff6b9a"
-                                   : (hud.threatCount() === 0 ? "#7ee0a8" : "#8a7bbf")
-                            font.pixelSize: 24
-                            font.weight: Font.Bold
-                        }
-                        Text {
-                            anchors.baseline: threatNum.baseline
-                            text: hud.threatWord()
-                            color: hud.threatCount() >= 0 ? "#e0d4ff" : "#8a7bbf"
-                            font.pixelSize: 14
-                            font.weight: Font.Medium
-                        }
-                    }
-                    // "n castes" under the value only when it fits inside the
-                    // 56 px block; otherwise the tooltip alone lists them.
-                    Text {
-                        id: threatCastes
-                        objectName: "OverseerStrip_threatCastes"
-                        readonly property int n: hud.engagedCastes().length
-                        y: threatNum.height
-                        visible: hud.threatCount() >= 1 && n > 0
-                                 && 22 + y + implicitHeight <= threatsBlock.height - 4
-                        text: n + (n === 1 ? " caste" : " castes")
-                        color: "#a99bd6"
-                        font.pixelSize: 11
-                    }
-                }
-                StripBlock {
-                    id: defendersBlock
-                    objectName: "OverseerStrip_defenders"
-                    visible: strip.fits(1)
-                    width: 288
-                    label: "Defenders"
-                    Accessible.name: "Defenders: " + hud.stripCount("warden") + " " + hud.defenderWords()
-                    Row {
-                        spacing: 8
-                        Text {
-                            id: defNum
-                            text: hud.stripCount("warden")
-                            color: "#a78bfa"
-                            font.pixelSize: 24
-                            font.weight: Font.Bold
-                        }
-                        Text {
-                            anchors.baseline: defNum.baseline
-                            text: hud.defenderWords()
-                            color: "#e0d4ff"
-                            font.pixelSize: 14
-                        }
-                    }
-                }
-                StripBlock {
-                    id: unitsBlock
-                    objectName: "OverseerStrip_units"
-                    visible: strip.fits(2)
-                    chip: strip.compact
-                    width: chip ? unitsChip.implicitWidth + 20 : 548
-                    label: "Units by caste"
-                    tip: chip ? hud.unitsTip() : ""
-                    Accessible.name: "Units by caste: " + hud.stripCount("units") + " total"
-                    Row {
-                        visible: !unitsBlock.chip
-                        spacing: 16
-                        Text {
-                            id: unitTotal
-                            text: hud.stripCount("units")
-                            color: "#e0d4ff"
-                            font.pixelSize: 24
-                            font.weight: Font.Bold
-                        }
-                        Repeater {
-                            model: hud.casteOrder
-                            Row {
-                                required property var modelData
-                                objectName: "OverseerStrip_caste_" + modelData[0]
-                                readonly property string n: hud.stripCount(modelData[0])
-                                readonly property bool present: n !== "0" && n !== "?"
-                                y: unitTotal.baselineOffset - casteLab.baselineOffset
-                                spacing: 6
-                                Rectangle {
-                                    width: 8; height: 8; radius: 4
-                                    anchors.verticalCenter: casteLab.verticalCenter
-                                    color: parent.present ? parent.modelData[2] : "#8a7bbf"
-                                }
-                                Text {
-                                    id: casteLab
-                                    text: parent.modelData[1] + " " + parent.n
-                                    color: parent.present ? "#e0d4ff" : "#8a7bbf"
-                                    font.pixelSize: 13
-                                }
-                            }
-                        }
-                    }
-                    ChipRow {
-                        id: unitsChip
-                        visible: unitsBlock.chip
-                        value: hud.stripCount("units")
-                        // Icon: four caste dots.
-                        Grid {
-                            columns: 2
-                            spacing: 2
-                            Repeater {
-                                model: ["#a78bfa", "#8fd3ff", "#f2c56b", "#7ee0c8"]
-                                Rectangle { required property string modelData; width: 5; height: 5; radius: 2.5; color: modelData }
-                            }
-                        }
-                    }
-                }
-                StripBlock {
-                    id: warrantsBlock
-                    objectName: "OverseerStrip_warrants"
-                    visible: strip.fits(3)
-                    chip: strip.compact
-                    width: chip ? warrantsChip.implicitWidth + 20 : 104
-                    label: "Warrants"
-                    tip: chip ? "Warrants: " + hud.stripCount("warrants") + ". " + hud.warrantsTooltip
-                              : hud.warrantsTooltip
-                    Accessible.name: "Warrants: " + hud.stripCount("warrants")
-                    Text {
-                        visible: !warrantsBlock.chip
-                        text: hud.stripCount("warrants")
-                        color: "#e0d4ff"
-                        font.pixelSize: 24
-                        font.weight: Font.Bold
-                    }
-                    ChipRow {
-                        id: warrantsChip
-                        visible: warrantsBlock.chip
-                        value: hud.stripCount("warrants")
-                        // Icon: a receipt.
-                        Rectangle {
-                            x: 1; width: 10; height: 12; radius: 2
-                            color: "transparent"; border.color: "#a99bd6"; border.width: 1
-                            Rectangle { x: 3; y: 4; width: 4; height: 1; color: "#a99bd6" }
-                            Rectangle { x: 3; y: 7; width: 4; height: 1; color: "#a99bd6" }
-                        }
-                    }
-                }
-                StripBlock {
-                    id: lastEventBlock
-                    objectName: "OverseerStrip_lastEvent"
-                    visible: strip.fits(4)
-                    chip: strip.compact
-                    width: chip ? lastChip.implicitWidth + 20 : 240
-                    label: "Last event"
-                    readonly property var event: hud.pills ? hud.pills.lastEvent : null
-                    tip: chip ? hud.lastEventTip(event) : ""
-                    Accessible.role: Accessible.Button
-                    Accessible.name: "Last event: " + (event ? event.time + " " + event.summary : "None yet")
-                    Row {
-                        visible: !lastEventBlock.chip
-                        spacing: 8
-                        width: parent.width
-                        Text {
-                            id: eventTime
-                            visible: text.length > 0
-                            text: lastEventBlock.event ? String(lastEventBlock.event.time || "") : ""
-                            color: "#a99bd6"
-                            font.pixelSize: 14
-                            font.family: "monospace"
-                        }
-                        Text {
-                            anchors.baseline: eventTime.baseline
-                            width: parent.width - (eventTime.visible ? eventTime.width + 8 : 0)
-                            elide: Text.ElideRight
-                            text: lastEventBlock.event ? String(lastEventBlock.event.summary || "") : "None yet"
-                            color: lastEventBlock.event ? "#e0d4ff" : "#8a7bbf"
-                            font.pixelSize: 14
-                        }
-                    }
-                    ChipRow {
-                        id: lastChip
-                        visible: lastEventBlock.chip
-                        mono: !!lastEventBlock.event
-                        value: lastEventBlock.event ? String(lastEventBlock.event.time || "").slice(0, 5) : "None"
-                        valueColor: lastEventBlock.event ? "#e0d4ff" : "#8a7bbf"
-                        // Icon: a clock.
-                        Rectangle {
-                            width: 12; height: 12; radius: 6
-                            color: "transparent"; border.color: "#a99bd6"; border.width: 1
-                            Rectangle { x: 5.5; y: 2.5; width: 1; height: 4; color: "#a99bd6" }
-                            Rectangle { x: 5.5; y: 5.5; width: 3.5; height: 1; color: "#a99bd6" }
-                        }
-                    }
-                    MouseArea {
-                        x: lastEventBlock.chip ? -10 : -16
-                        y: lastEventBlock.chip ? -14 : -22
-                        width: lastEventBlock.width
-                        height: lastEventBlock.height
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: hud.showLogRow(lastEventBlock.event ? lastEventBlock.event.seq : undefined)
-                    }
-                }
+            MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: hud.hudCommand(hud.coreMode ? "exit_core" : "core_focus", {})
             }
         }
 
         Rectangle {
             id: empButton
             objectName: "OverseerEmergencyStop"
+            // 64 px keeps it clear of the close mote in the window corner.
             anchors.right: parent.right
             anchors.rightMargin: 64
-            anchors.verticalCenter: parent.verticalCenter
+            anchors.top: parent.top
+            anchors.topMargin: 4
             width: empLabel.implicitWidth + 20
             height: 30
             radius: 15
             color: "#d68ab8"
+            z: 5
+            Accessible.role: Accessible.Button
+            Accessible.name: "Emergency stop"
+            Accessible.onPressAction: hud.hudCommand("emp_halt", { reason: "Overseer emergency stop" })
             Text {
                 id: empLabel
                 anchors.centerIn: parent
                 text: "Emergency stop"
-                color: "#f0c4dc"
+                color: "#2a0d1e"
                 font.pixelSize: 12
+                font.weight: Font.DemiBold
             }
             MouseArea {
                 anchors.fill: parent
                 onClicked: hud.hudCommand("emp_halt", { reason: "Overseer emergency stop" })
             }
         }
+
+        // Shown only while tokens arrive: the host sets tokRate to 0 one
+        // second after the last token, so it never reads "0 tok/s" or
+        // freezes on a stalled stream.
+        // The string is "38 tok/s" with no period. On the 1028 px header a
+        // star in the gap after "8" (the text is overlay, the scene shows
+        // through) reads as "38. tok/s". An opaque plate in the scene clear
+        // colour covers that gap. QtRendering + no hinting also stops a
+        // hinted "8" from leaving its own baseline blob.
+        Item {
+            id: tokReadoutWrap
+            objectName: "OverseerTokRatePlate"
+            anchors.right: empButton.right
+            anchors.top: empButton.bottom
+            anchors.topMargin: 6
+            width: tokReadout.implicitWidth + 4
+            height: tokReadout.implicitHeight + 2
+            visible: hud.tokRate > 0
+            Rectangle {
+                anchors.fill: parent
+                color: "#010103"
+            }
+            Text {
+                id: tokReadout
+                objectName: "OverseerTokRate"
+                anchors.centerIn: parent
+                text: hud.tokRate + " tok/s"
+                color: "#cdb2f7"
+                font.family: hud.monoFamily
+                font.pixelSize: 13
+                renderType: Text.QtRendering
+                font.hintingPreference: Font.PreferNoHinting
+                Accessible.role: Accessible.StaticText
+                Accessible.name: "Model speed " + text
+            }
+        }
+    }
+
+    // Small borderless text button that opens the unit drawer.
+    Item {
+        id: unitsButton
+        objectName: "OverseerUnitsButton"
+        x: hud.marginX
+        y: topBar.y + topBar.height
+        width: unitsLab.implicitWidth + 16
+        height: 28
+        Accessible.role: Accessible.Button
+        Accessible.name: hud.drawerOpen ? "Hide units" : "Units"
+        Accessible.description: "Open or close the unit list"
+        Accessible.onPressAction: hud.drawerOpen = !hud.drawerOpen
+        Text {
+            id: unitsLab
+            anchors.verticalCenter: parent.verticalCenter
+            text: hud.drawerOpen ? "Units ‹" : "Units ›"
+            color: hud.drawerOpen ? "#e8dcfb" : "#cdb2f7"
+            font.pixelSize: 14
+            font.weight: Font.Medium
+        }
+        MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            onClicked: hud.drawerOpen = !hud.drawerOpen
+        }
     }
 
     Rectangle {
         id: swarmPanel
         objectName: "OverseerSwarmPanel"
-        anchors.left: parent.left
-        anchors.top: topBar.bottom
-        anchors.bottom: consolePanel.top
+        // Overlay drawer from the left, over the scene. Closed by default.
+        visible: hud.drawerOpen
+        x: hud.marginX
+        anchors.top: unitsButton.bottom
+        anchors.topMargin: 6
+        anchors.bottom: legend.top
+        anchors.bottomMargin: 12
         width: Math.min(440, parent.width * 0.26)
-        color: hud.panelFill
-        border.color: "#6d4ad8"
+        radius: 10
+        color: hud.plateFill
+        border.color: hud.plateEdge
         border.width: 1
 
         Column {
@@ -687,7 +709,7 @@ Item {
                             return "#1a1030"
                         if (modelData.unit_id === hud.selectedUnitId)
                             return "#2a1a4a"
-                        return hud.panelFill
+                        return "transparent"
                     }
                     border.color: modelData.unit_id === hud.selectedUnitId ? "#8b6cf2" : "transparent"
                     border.width: modelData.unit_id === hud.selectedUnitId ? 1 : 0
@@ -829,19 +851,19 @@ Item {
         // Rank 3: dock outside the free well, only while a unit is selected.
         visible: hud.inspectorOpen && !!(hud.inspector && hud.inspector.unit_id)
         anchors.right: parent.right
-        anchors.rightMargin: 24
+        anchors.rightMargin: hud.marginX
         anchors.top: topBar.bottom
         anchors.topMargin: 18
         width: 360
-        // Cap: Iris y 1050 (946 below the dock top) and above the 230 px console.
+        // Cap: Iris y 1050 (946 below the dock top) and above the dispatch bar.
         height: Math.min(
             dockBody.implicitHeight + 32,
-            Math.max(0, parent.height - topBar.height - 18 - 230 - 16),
+            Math.max(0, dispatchBar.y - 16 - y),
             946
         )
         radius: 12
-        color: hud.panelFill
-        border.color: "#2f2358"
+        color: hud.plateFill
+        border.color: hud.plateEdge
         border.width: 1
         clip: true
         Accessible.role: Accessible.Pane
@@ -1315,19 +1337,149 @@ Item {
                 font.pixelSize: 13
                 bottomPadding: 0
             }
+
+            // Footer: where this unit's task came from, when that is known.
+            Text {
+                objectName: "OverseerInspectorOrigin"
+                width: parent.width
+                visible: text.length > 0
+                topPadding: 12
+                text: hud.inspector && hud.inspector.origin ? String(hud.inspector.origin) : ""
+                color: "#cdb2f7"
+                font.pixelSize: 12
+                wrapMode: Text.Wrap
+            }
         }
         } // dockFlick
+    }
+
+    // Dispatch is the only way to give Arelis a job while chat is off (chat is
+    // disabled while the Overseer is open). An overlay bar at bottom centre,
+    // styled like the chat composer: one rounded plate, a borderless field,
+    // Enter or the button sends.
+    Rectangle {
+        id: dispatchBar
+        objectName: "OverseerDispatchBar"
+        // Above the replay strip, centred, clear of the legend and Events.
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: replay.top
+        anchors.bottomMargin: 20
+        width: Math.max(320, Math.min(820, parent.width - 2 * hud.marginX
+                                       - 2 * (Math.max(legend.width, eventsButton.width) + 12)))
+        height: 48
+        radius: 24
+        color: hud.plateFill
+        border.color: queryField.activeFocus ? "#a473f0" : hud.plateEdge
+        border.width: 1
+        Accessible.role: Accessible.Grouping
+        Accessible.name: "Dispatch"
+
+        Row {
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.left: parent.left
+            anchors.leftMargin: 10
+            spacing: 8
+            OverseerComboBox {
+                id: modeBox
+                objectName: "OverseerMissionMode"
+                anchors.verticalCenter: parent.verticalCenter
+                width: dispatchBar.width < 560 ? 140 : 176
+                height: 32
+                model: ["multi", "arxiv", "horizons", "wikipedia", "security_audit"]
+                onActivated: hud.missionMode = currentText
+            }
+            TextField {
+                id: queryField
+                objectName: "OverseerMissionQuery"
+                Accessible.name: "Mission query"
+                anchors.verticalCenter: parent.verticalCenter
+                width: dispatchBar.width - modeBox.width - dispatchButton.width - 10 - 8 - 8 - 8
+                height: 36
+                placeholderText: width < 200 ? "Research query"
+                                 : width < 300 ? "Give the sentinels a job"
+                                             : "Give the sentinels a job: research query, planet, or topic"
+                color: "#e8dcfb"
+                placeholderTextColor: "#a090d4"
+                font.pixelSize: 16
+                background: Item {}
+                onTextChanged: hud.missionQuery = text
+                onAccepted: dispatchButton.dispatch()
+            }
+            Rectangle {
+                id: dispatchButton
+                objectName: "OverseerDispatch"
+                anchors.verticalCenter: parent.verticalCenter
+                height: 34
+                width: 100
+                radius: 17
+                color: "transparent"  // outline only: Emergency stop is the one filled control
+                border.color: "#8b6cf2"
+                function dispatch() {
+                    hud.hudCommand("dispatch", { mode: hud.missionMode, query: hud.missionQuery })
+                }
+                Accessible.role: Accessible.Button
+                Accessible.name: "Dispatch"
+                Accessible.description: "Send the mission in Mode with the query"
+                Accessible.onPressAction: dispatchButton.dispatch()
+                Text { anchors.centerIn: parent; text: "Dispatch"; color: "#e8dcfb"; font.pixelSize: 14 }
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: dispatchButton.dispatch()
+                }
+            }
+        }
+    }
+
+    Text {
+        objectName: "OverseerCommandStatus"
+        anchors.horizontalCenter: dispatchBar.horizontalCenter
+        anchors.top: dispatchBar.bottom
+        anchors.topMargin: 2
+        text: hud.commandStatus
+        color: "#cdb2f7"
+        font.pixelSize: 12
+    }
+
+    // The event list folds into an overlay opened from this text button.
+    Item {
+        id: eventsButton
+        objectName: "OverseerEventsButton"
+        x: parent.width - hud.marginX - width
+        anchors.verticalCenter: dispatchBar.verticalCenter
+        width: eventsLab.implicitWidth + 16
+        height: 28
+        Accessible.role: Accessible.Button
+        Accessible.name: hud.eventsOpen ? "Hide events" : "Events"
+        Accessible.description: "Open or close the event list"
+        Accessible.onPressAction: hud.eventsOpen = !hud.eventsOpen
+        Text {
+            id: eventsLab
+            anchors.verticalCenter: parent.verticalCenter
+            text: hud.eventsOpen ? "Events ˅" : "Events ˄"
+            color: hud.eventsOpen ? "#e8dcfb" : "#cdb2f7"
+            font.pixelSize: 14
+            font.weight: Font.Medium
+        }
+        MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            onClicked: hud.eventsOpen = !hud.eventsOpen
+        }
     }
 
     Rectangle {
         id: consolePanel
         objectName: "OverseerConsole"
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
+        visible: hud.eventsOpen
+        x: hud.marginX
+        width: parent.width - 2 * hud.marginX
+        anchors.bottom: dispatchBar.top
+        anchors.bottomMargin: 12
         height: 230
-        color: hud.panelFill
-        border.color: "#6d4ad8"
+        radius: 10
+        color: hud.plateFill
+        border.color: hud.plateEdge
         border.width: 1
 
         Column {
@@ -1337,58 +1489,6 @@ Item {
             anchors.top: parent.top
             anchors.margins: 10
             spacing: 6
-
-            Row {
-                spacing: 8
-                OverseerComboBox {
-                    id: modeBox
-                    objectName: "OverseerMissionMode"
-                    width: 220
-                    height: 28
-                    model: ["multi", "arxiv", "horizons", "wikipedia", "security_audit"]
-                    onActivated: hud.missionMode = currentText
-                }
-                TextField {
-                    id: queryField
-                    objectName: "OverseerMissionQuery"
-                    Accessible.name: "Mission query"
-                    width: 420
-                    height: 28
-                    placeholderText: "Research query, planet, or topic"
-                    color: "#e0d4ff"
-                    placeholderTextColor: "#a090d4"
-                    background: Rectangle { color: "#160f2b"; border.color: "#6d4ad8"; radius: 4 }
-                    onTextChanged: hud.missionQuery = text
-                }
-                Rectangle {
-                    id: dispatchButton
-                    objectName: "OverseerDispatch"
-                    height: 28
-                    width: 90
-                    radius: 4
-                    color: "#2a1a4a"
-                    border.color: "#8b6cf2"
-                    function dispatch() {
-                        hud.hudCommand("dispatch", { mode: hud.missionMode, query: hud.missionQuery })
-                    }
-                    Accessible.role: Accessible.Button
-                    Accessible.name: "Dispatch"
-                    Accessible.description: "Send the mission in Mode with the query"
-                    Accessible.onPressAction: dispatchButton.dispatch()
-                    Text { anchors.centerIn: parent; text: "Dispatch"; color: "#e0d4ff" }
-                    MouseArea {
-                        anchors.fill: parent
-                        onClicked: dispatchButton.dispatch()
-                    }
-                }
-                Text {
-                    objectName: "OverseerCommandStatus"
-                    text: hud.commandStatus
-                    color: "#9a86d0"
-                    font.pixelSize: 12
-                    anchors.verticalCenter: parent.verticalCenter
-                }
-            }
 
             Row {
                 spacing: 6
@@ -1592,6 +1692,269 @@ Item {
                     font.family: "monospace"
                 }
             }
+        }
+    }
+
+    // Legend (GAP item 11): bottom left, above the replay strip. One row per
+    // caste: dot, name, live count, role.
+    readonly property var legendRows: [
+        ["warden", "Warden", "#a473f0", "guards the core"],
+        ["harvester", "Harvester", "#8fd3ff", "fetches sources"],
+        ["sanitizer", "Sanitizer", "#f2c56b", "checks results"],
+        ["tripwire", "Tripwire", "#7ee0c8", "watches the edge"],
+        ["stalker", "Stalker", "#e879f9", "hunts threats"]
+    ]
+
+    Rectangle {
+        id: legend
+        objectName: "OverseerLegend"
+        x: hud.marginX
+        anchors.bottom: replay.top
+        anchors.bottomMargin: 12
+        width: legendColumn.implicitWidth + 24
+        height: legendColumn.implicitHeight + 20
+        radius: 8
+        color: hud.plateFill
+        border.color: hud.plateEdge
+        border.width: 1
+        Accessible.role: Accessible.Grouping
+        Accessible.name: "Legend"
+
+        Column {
+            id: legendColumn
+            x: 12
+            y: 10
+            spacing: 4
+            Repeater {
+                model: hud.legendRows
+                Row {
+                    required property var modelData
+                    objectName: "OverseerLegend_" + modelData[0]
+                    spacing: 8
+                    Accessible.role: Accessible.StaticText
+                    Accessible.name: modelData[1] + " " + hud.stripCount(modelData[0]) + ", " + modelData[3]
+                    Rectangle {
+                        width: 8; height: 8; radius: 4
+                        anchors.verticalCenter: parent.verticalCenter
+                        color: parent.modelData[2]
+                    }
+                    Text {
+                        width: 70
+                        text: parent.modelData[1]
+                        color: "#e8dcfb"
+                        font.family: hud.titleFamily
+                        font.pixelSize: 13
+                        font.weight: Font.Medium
+                    }
+                    Text {
+                        width: 28
+                        text: hud.stripCount(parent.modelData[0])
+                        color: "#e8dcfb"
+                        font.family: hud.monoFamily
+                        font.pixelSize: 13
+                    }
+                    Text {
+                        text: parent.modelData[3]
+                        color: "#cdb2f7"
+                        font.family: hud.titleFamily
+                        font.pixelSize: 13
+                    }
+                }
+            }
+            Text {
+                objectName: "OverseerLegendFooter"
+                topPadding: 2
+                text: "Red eyes appear only on a real threat."
+                color: "#cdb2f7"
+                font.family: hud.titleFamily
+                font.pixelSize: 12
+            }
+        }
+    }
+
+    // Replay strip (GAP item 12): the last 10 minutes, one tick per event,
+    // coloured by type, the playhead at now on the right. Ticks are plain
+    // Rectangles placed once at their own time inside a track that slides
+    // left on a 4 Hz clock, so the scene graph batches them into one draw and
+    // nothing is rebuilt per poll. Clicking a tick opens the event list at
+    // that event. There is no scrubbing.
+    readonly property real replayWindow: 600
+    readonly property var replayColors: ({
+        "fetch": "#8fd3ff",
+        "result": "#cdb2f7",
+        "tripwire": "#7ee0c8",
+        "threat": "#ff6b9a",
+        "other": "#6f5a9e"
+    })
+    property real replayNow: Date.now() / 1000
+    property int replayLastSeq: -1
+
+    ListModel { id: replayModel }
+
+    function syncReplay() {
+        var rows = replayTicks || []
+        var newest = rows.length ? rows[rows.length - 1].seq : -1
+        // A new hive (seq restarted) or a reset log: start over.
+        if (newest < replayLastSeq) {
+            replayModel.clear()
+            replayLastSeq = -1
+        }
+        for (var i = 0; i < rows.length; i++) {
+            var r = rows[i]
+            if (r.seq > replayLastSeq) {
+                replayModel.append({ seq: r.seq, t: r.t, kind: String(r.kind || "other") })
+                replayLastSeq = r.seq
+            }
+        }
+        pruneReplay()
+    }
+
+    function pruneReplay() {
+        var start = replayNow - replayWindow
+        var n = 0
+        while (n < replayModel.count && replayModel.get(n).t < start)
+            n++
+        if (n > 0)
+            replayModel.remove(0, n)
+    }
+
+    function nearestReplayTick(px) {
+        var best = -1
+        var bestDist = 8
+        for (var i = 0; i < replayModel.count; i++) {
+            var d = Math.abs(replayTrack.x + replayTrack.xFor(replayModel.get(i).t) - px)
+            if (d <= bestDist) {
+                bestDist = d
+                best = replayModel.get(i).seq
+            }
+        }
+        return best
+    }
+
+    function openReplayTick(seq) {
+        eventsOpen = true
+        showLogRow(seq)
+    }
+
+    onReplayTicksChanged: syncReplay()
+
+    Timer {
+        interval: 250
+        running: hud.visible
+        repeat: true
+        onTriggered: {
+            hud.replayNow = Date.now() / 1000
+            hud.pruneReplay()
+        }
+    }
+
+    Item {
+        id: replay
+        objectName: "OverseerReplay"
+        x: hud.marginX
+        width: parent.width - 2 * hud.marginX
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: hud.marginY
+        height: 48
+        Accessible.role: Accessible.Button
+        Accessible.name: "Replay, last 10 minutes, " + replayModel.count + " events"
+        Accessible.description: "Open the event list at the newest event"
+        Accessible.onPressAction: hud.openReplayTick(replayModel.count ? replayModel.get(replayModel.count - 1).seq : -1)
+
+        Row {
+            id: replayKey
+            spacing: 14
+            height: 14
+            Text {
+                text: "Replay · last 10 min"
+                color: "#cdb2f7"
+                font.family: hud.titleFamily
+                font.pixelSize: 12
+            }
+            Repeater {
+                model: [["fetch", "fetch"], ["result", "result in"], ["tripwire", "tripwire check"], ["threat", "threat"]]
+                Row {
+                    required property var modelData
+                    spacing: 4
+                    Rectangle { width: 2; height: 10; anchors.verticalCenter: parent.verticalCenter; color: hud.replayColors[parent.modelData[0]] }
+                    Text { text: parent.modelData[1]; color: "#cdb2f7"; font.family: hud.titleFamily; font.pixelSize: 11 }
+                }
+            }
+        }
+
+        Item {
+            id: replayBand
+            y: 18
+            width: parent.width
+            height: 16
+            clip: true
+            Rectangle { y: parent.height - 1; width: parent.width; height: 1; color: hud.plateEdge }
+            Item {
+                id: replayTrack
+                objectName: "OverseerReplayTrack"
+                readonly property real pxPerSec: replayBand.width / hud.replayWindow
+                // Ticks keep their x for life; only this offset moves.
+                readonly property real origin: Math.floor(hud.replayNow / 3600) * 3600 - 3600
+                function xFor(t) { return (t - origin) * pxPerSec }
+                x: -(hud.replayNow - hud.replayWindow - origin) * pxPerSec
+                height: parent.height
+                Repeater {
+                    model: replayModel
+                    Rectangle {
+                        required property real t
+                        required property string kind
+                        x: replayTrack.xFor(t)
+                        y: kind === "threat" ? 0 : 5
+                        width: 2
+                        height: parent.height - y
+                        color: hud.replayColors[kind] || hud.replayColors.other
+                    }
+                }
+            }
+            Rectangle {
+                objectName: "OverseerReplayPlayhead"
+                x: parent.width - 2
+                width: 2
+                height: parent.height
+                color: "#e8dcfb"
+            }
+        }
+
+        MouseArea {
+            x: replayBand.x
+            y: replayBand.y - 4
+            width: replayBand.width
+            height: replayBand.height + 8
+            cursorShape: Qt.PointingHandCursor
+            onClicked: (mouse) => {
+                var seq = hud.nearestReplayTick(mouse.x)
+                if (seq >= 0)
+                    hud.openReplayTick(seq)
+            }
+        }
+
+        Text {
+            y: 36
+            text: "-10 min"
+            color: "#cdb2f7"
+            font.family: hud.monoFamily
+            font.pixelSize: 11
+        }
+        Text {
+            y: 36
+            x: (parent.width - width) / 2
+            text: "-5"
+            color: "#cdb2f7"
+            font.family: hud.monoFamily
+            font.pixelSize: 11
+        }
+        Text {
+            y: 36
+            x: parent.width - width
+            text: "now"
+            color: "#cdb2f7"
+            font.family: hud.monoFamily
+            font.pixelSize: 11
         }
     }
 }
