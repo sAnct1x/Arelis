@@ -13,6 +13,12 @@ from typing import Any
 from uuid import uuid4
 
 from arelis.core.bus import EventBus
+from arelis.core.compaction import (
+    COMPACTION_MARKER,
+    MAX_SUMMARY_CHARS,
+    SUMMARY_RESERVE_TOKENS,
+    compaction_prompt_line,
+)
 from arelis.core.context import (
     TokenRatios,
     allocate_history,
@@ -377,14 +383,19 @@ _JS_SHELL_BROWSER_NOTICE = (
 )
 
 # Room left for the summary pin when deciding what still fits as raw history.
-# The real summary is capped separately; this only keeps allocate_history from
+# The real pin is capped separately; this only keeps allocate_history from
 # filling the window so tightly that the pin itself would force another drop.
-_SUMMARY_RESERVE_TOKENS = 256
-_MAX_SUMMARY_CHARS = 800
+_SUMMARY_RESERVE_TOKENS = SUMMARY_RESERVE_TOKENS
+_MAX_SUMMARY_CHARS = MAX_SUMMARY_CHARS
 
 _SUMMARY_SYSTEM = """
 You compress older turns of a conversation so a later model call can still use them.
 Write only the filled-in form. No preamble.
+
+In SUMMARY, keep exact numbers with their units, equations or LaTeX, code
+identifiers, and decisions word for word. Do not round, paraphrase, or drop them.
+A later step also copies those values from the original turns, so omitting
+one does not delete it, but the paragraph should still name them.
 
 FACTS are rare. Only list durable identity or preference truths that should
 still matter months from now (job, school, name preferences, standing project
@@ -1446,7 +1457,7 @@ class AgentLoop:
             pinned.append(
                 {
                     "role": "system",
-                    "content": f"[earlier in this conversation: {self.memory.summary}]",
+                    "content": compaction_prompt_line(self.memory.summary),
                 }
             )
         # Message-count backstop. The token budget is the real limit. A tool
@@ -1510,36 +1521,11 @@ class AgentLoop:
         if not dropped:
             return _with_tail(pinned, kept)
 
-        # Conversation mode: a second model pass to fold two old turns costs
-        # ~1-2s and shows up in turns.log every spoken reply. The archive
-        # already has those messages; drop them and keep answering.
-        # Slash commands also skip the model summarize (H1 / L7).
-        skip_summarize = bool(self.config.get("_speak_replies")) or (
-            bool(agent_cfg.get("summarize_skip_slash", True))
-            and (user_text or "").lstrip().startswith("/")
-        ) or (role or "").strip().lower() == "research"
-        if skip_summarize:
-            n_drop = len(dropped)
-            self.memory.drop_prompt_prefix(n_drop, include_notes=notes)
-            if self.config.get("_speak_replies"):
-                mode = "speak"
-            elif (role or "").strip().lower() == "research":
-                mode = "research"
-            else:
-                mode = "slash"
-            if self._timer is not None:
-                self._timer.mark("drop", dropped=n_drop, mode=mode)
-            await self.bus.publish(
-                Event(
-                    EventType.THINKING,
-                    {"text": f"phase=drop dropped={n_drop} mode={mode}"},
-                )
-            )
-            return _with_tail(pinned, _live_history())
-
         # Re-allocate against a smaller budget, because a summary pin is about to
         # take room the first pass did not reserve. Same older/tail split: the
-        # history has not changed, only what it has to fit inside.
+        # history has not changed, only what it has to fit inside. Speak, slash,
+        # research and timeout folds inject that pin too, so they share this
+        # reserve; otherwise a window packed on the first pass can overflow.
         remaining = budget - pinned_cost - tail_cost - _SUMMARY_RESERVE_TOKENS
         if remaining <= 0 or not older:
             dropped = list(older)
@@ -1555,6 +1541,51 @@ class AgentLoop:
             dropped = [*capped_drop, *dropped]
         if not dropped:
             return _with_tail(pinned, kept)
+
+        def _fitted_after_pin() -> list[dict[str, Any]]:
+            # Once the pin is known, fit the remaining history to the real cost
+            # so a tighter ratio cannot still overflow the reserved slack.
+            pinned_now = self._pinned_with_summary(system_messages)
+            pin_cost = sum(message_tokens(m, chars_per_token=ratio) for m in pinned_now) + sum(
+                message_tokens(m, chars_per_token=ratio) for m in turn_lines
+            )
+            remaining_history = _live_history()
+            older_now, tail_now = split_recent_history(remaining_history, min_recent)
+            tail_now_cost = sum(message_tokens(m, chars_per_token=ratio) for m in tail_now)
+            room = budget - pin_cost - tail_now_cost
+            if room <= 0 or not older_now:
+                kept_now = list(tail_now)
+            else:
+                kept_older, _more = allocate_history(older_now, max(0, room), chars_per_token=ratio)
+                kept_now = [*kept_older, *tail_now]
+            return _with_tail(pinned_now, kept_now)
+
+        # Conversation mode: a second model pass to fold two old turns costs
+        # ~1-2s and shows up in turns.log every spoken reply. The archive
+        # already has those messages; drop them and keep answering.
+        # Slash commands also skip the model summarize (H1 / L7).
+        skip_summarize = bool(self.config.get("_speak_replies")) or (
+            bool(agent_cfg.get("summarize_skip_slash", True))
+            and (user_text or "").lstrip().startswith("/")
+        ) or (role or "").strip().lower() == "research"
+        if skip_summarize:
+            n_drop = len(dropped)
+            await self._fold_dropped_rows(dropped, include_notes=notes)
+            if self.config.get("_speak_replies"):
+                mode = "speak"
+            elif (role or "").strip().lower() == "research":
+                mode = "research"
+            else:
+                mode = "slash"
+            if self._timer is not None:
+                self._timer.mark("drop", dropped=n_drop, mode=mode)
+            await self.bus.publish(
+                Event(
+                    EventType.THINKING,
+                    {"text": f"phase=drop dropped={n_drop} mode={mode}"},
+                )
+            )
+            return _fitted_after_pin()
 
         await self.bus.publish(
             Event(
@@ -1586,9 +1617,10 @@ class AgentLoop:
             )
         )
         if not summary and dropped:
-            # Budget/timeout: drop without model fold so the turn can proceed.
+            # Budget/timeout: no model paragraph, but verbatim values still
+            # fold into the pin so exact numbers are not discarded.
             n_drop = len(dropped)
-            self.memory.drop_prompt_prefix(n_drop, include_notes=notes)
+            await self._fold_dropped_rows(dropped, include_notes=notes)
             if self._timer is not None:
                 self._timer.mark("drop", dropped=n_drop, mode="summarize_timeout")
             await self.bus.publish(
@@ -1601,43 +1633,59 @@ class AgentLoop:
                     },
                 )
             )
-            return _with_tail(pinned, _live_history())
+            return _fitted_after_pin()
         if summary:
-            self.memory.set_summary(summary)
-            # Dropped prefix is now in the summary; keeping it in messages would
+            # Dropped prefix is now in the pin; keeping it in messages would
             # re-send it every turn and trigger another summarize immediately.
             # The archive sink has already stored those messages; only the
             # in-process working set shrinks.
-            self.memory.drop_prompt_prefix(len(dropped), include_notes=notes)
+            await self._fold_dropped_rows(
+                dropped, include_notes=notes, narrative=summary
+            )
         for fact in facts:
             self.memory.add_pending_fact(fact)
 
+        return _fitted_after_pin()
+
+    def _pinned_with_summary(
+        self, system_messages: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         pinned = list(system_messages)
+        line = compaction_prompt_line(self.memory.summary)
+        if line:
+            pinned.append({"role": "system", "content": line})
+        return pinned
+
+    async def _fold_dropped_rows(
+        self,
+        dropped: list[dict[str, Any]],
+        *,
+        include_notes: bool,
+        narrative: str = "",
+    ) -> None:
+        """Shrink the working set and keep a verbatim pin plus a chat marker."""
+        self.memory.drop_prompt_prefix(len(dropped), include_notes=include_notes)
+        self.memory.fold_dropped(dropped, narrative=narrative)
+        await self._publish_compaction()
+
+    async def _publish_compaction(self) -> None:
+        payload: dict[str, Any] = {"text": COMPACTION_MARKER}
         if self.memory.summary:
-            pinned.append(
+            payload["summary"] = self.memory.summary
+        sink = getattr(self.memory, "sink", None)
+        session_id = getattr(sink, "session_id", None) if sink is not None else None
+        getter = getattr(sink, "get_messages", None) if sink is not None else None
+        if session_id and callable(getter):
+            payload["session_id"] = session_id
+            payload["messages"] = [
                 {
-                    "role": "system",
-                    "content": f"[earlier in this conversation: {self.memory.summary}]",
+                    "role": str(row.get("role") or ""),
+                    "content": str(row.get("content") or ""),
+                    "note": str(row.get("note") or ""),
                 }
-            )
-        pinned_cost = sum(message_tokens(m, chars_per_token=ratio) for m in pinned) + sum(
-            message_tokens(m, chars_per_token=ratio) for m in turn_lines
-        )
-        remaining_history = self.memory.as_chat(
-            include_notes=not bool(self.config.get("_speak_replies")),
-            include_latest_block=False,
-        )
-        older, tail = split_recent_history(remaining_history, min_recent)
-        tail_cost = sum(message_tokens(m, chars_per_token=ratio) for m in tail)
-        room = budget - pinned_cost - tail_cost
-        if room <= 0 or not older:
-            kept = list(tail)
-        else:
-            kept_older, _more = allocate_history(
-                older, max(0, room), chars_per_token=ratio
-            )
-            kept = [*kept_older, *tail]
-        return _with_tail(pinned, kept)
+                for row in getter(session_id)
+            ]
+        await self.bus.publish(Event(EventType.CHAT_COMPACTED, payload))
 
     async def _summarize_dropped(
         self,

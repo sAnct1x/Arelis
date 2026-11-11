@@ -46,6 +46,7 @@ _AUDITED: frozenset[EventType] = frozenset(
         EventType.SMS_RECEIVED,
         EventType.SESSION_LOAD,
         EventType.SESSION_LOADED,
+        EventType.CHAT_COMPACTED,
         EventType.VOICE_TRANSCRIPT,
         EventType.PHYSICS_VERB,
         EventType.TILE_VERB,
@@ -213,7 +214,7 @@ def _format_event(event: Event) -> str:
     elif event.type == EventType.SMS_RECEIVED:
         fields["from"] = "sender"
         fields["chars"] = len(str(payload.get("body") or ""))
-    elif event.type in {EventType.SESSION_LOAD, EventType.SESSION_LOADED}:
+    elif event.type in {EventType.SESSION_LOAD, EventType.SESSION_LOADED, EventType.CHAT_COMPACTED}:
         fields["session"] = payload.get("session_id") or "?"
         if "ok" in payload:
             fields["ok"] = payload.get("ok")
