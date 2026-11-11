@@ -14,8 +14,8 @@ from arelis.ui.overseer_orca import (
     ORCA_TAU,
     PROJ_MAX_MOVE,
     PROJ_MAX_PASSES,
+    OrcaPairSolver,
     Smoother,
-    orca_from_pairs,
     orca_step,
 )
 
@@ -610,8 +610,11 @@ class Sim:
         reach = ORCA_NBR_DIST + 8.0
         Ip, Jp, gp, vp = cap_pairs(Xsp, Rsp, self.p, live, reach)
         if len(Ip):
-            v1 = orca_from_pairs(self.p, self.v, v_pref, self.mass(), live, vmax, DT, CAM_POS, Ip, Jp, gp, vp, GAP_MIN, ORCA_TAU)
-            v1 = orca_from_pairs(self.p, v1, v1, self.mass(), live, vmax, DT, CAM_POS, Ip, Jp, gp, vp, GAP_MIN, ORCA_TAU)
+            orca = OrcaPairSolver(
+                self.p, self.mass(), live, vmax, CAM_POS, Ip, Jp, gp, vp, GAP_MIN, ORCA_TAU
+            )
+            v1 = orca.solve(self.v, v_pref)
+            v1 = orca.solve(v1, v1)
         else:
             v1 = orca_step(self.p, self.v, v_pref, radii, self.mass(), live, amax, vmax, DT, CAM_POS, GAP_MIN)
         # Turn limit applies to preferred velocity only (already in F / caste steering).
@@ -638,7 +641,7 @@ class Sim:
             # Re-solve ORCA after the cone so heading correction cannot undo avoidance.
             # (Adding Fsep back, as the snap-based design sim does, would reopen gaps.)
             if len(Ip):
-                v1 = orca_from_pairs(self.p, v1, v1, self.mass(), live, vmax, DT, CAM_POS, Ip, Jp, gp, vp, GAP_MIN, ORCA_TAU)
+                v1 = orca.solve(v1, v1)
         # banking from the turn rate (coordinated turn), smoothed 0.25 s
         hz0 = v0[:, [0, 2]]; hz1 = v1[:, [0, 2]]
         yaw0 = np.arctan2(hz0[:, 1], hz0[:, 0]); yaw1 = np.arctan2(hz1[:, 1], hz1[:, 0])

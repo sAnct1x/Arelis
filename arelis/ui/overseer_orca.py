@@ -277,6 +277,115 @@ class Smoother:
         return self.x.copy(), self.yaw.copy()
 
 
+class OrcaPairSolver:
+    """Reusable ORCA half-planes for one set of positions and capsule pairs.
+
+    Camera bases and neighbor constraints depend only on P, mass, and the
+    pair gaps; V and preferred velocity change across the two (or three)
+    solves in Sim.step. Building them once keeps the 100-unit path bounded
+    by N * ORCA_MAX_NBR per solve instead of walking every cap_pairs hit
+    three times.
+    """
+
+    def __init__(
+        self,
+        P,
+        mass,
+        live,
+        vmax,
+        cam_pos,
+        pair_i,
+        pair_j,
+        gaps,
+        normals,
+        gap_min=GAP_MIN_DEFAULT,
+        tau=ORCA_TAU,
+    ):
+        n_agents = len(P)
+        live = np.asarray(live, dtype=bool)
+        self.vmax = vmax
+        self.live = live
+        self.n_agents = n_agents
+        # Same scalar cam_basis and pair walk as orca_from_pairs, computed once.
+        self.e1 = [None] * n_agents
+        self.e2 = [None] * n_agents
+        self.fwd = [None] * n_agents
+        for i in range(n_agents):
+            if live[i]:
+                self.e1[i], self.e2[i], self.fwd[i] = cam_basis(P[i], cam_pos)
+
+        cons = [[] for _ in range(n_agents)]
+        for k in range(len(pair_i)):
+            i = int(pair_i[k])
+            j = int(pair_j[k])
+            if not live[i] or not live[j]:
+                continue
+            if float(np.dot(P[i] - P[j], P[i] - P[j])) > ORCA_NBR_DIST * ORCA_NBR_DIST:
+                continue
+            n3 = np.asarray(normals[k], dtype=np.float64)
+            ln = float(np.linalg.norm(n3))
+            if ln < 1e-8:
+                continue
+            n3 = n3 / ln
+            rhs_rel = (float(gap_min) - float(gaps[k])) / max(float(tau), 1e-3)
+            if float(gaps[k]) < 0.0:
+                ri, rj = 0.5, 0.5
+            elif mass[i] < mass[j] - 1e-9:
+                ri, rj = 1.0, 0.0
+            elif mass[i] > mass[j] + 1e-9:
+                ri, rj = 0.0, 1.0
+            else:
+                ri, rj = 0.5, 0.5
+            cons[i].append((rhs_rel, j, n3, ri))
+            cons[j].append((rhs_rel, i, -n3, rj))
+
+        self.linespec = [None] * n_agents
+        for i in range(n_agents):
+            if not live[i]:
+                continue
+            e1, e2, fwd = self.e1[i], self.e2[i], self.fwd[i]
+            neigh = [c for c in cons[i] if c[3] > 0.0]
+            neigh.sort(reverse=True)
+            specs = []
+            for rhs, j, n3, resp in neigh[:ORCA_MAX_NBR]:
+                n2 = to2(n3, e1, e2)
+                plen = math.sqrt(float(np.dot(n2, n2)))
+                if plen < 0.15:
+                    continue
+                n2 = n2 / plen
+                direction = np.array([n2[1], -n2[0]])
+                specs.append(
+                    (rhs, j, n3, resp, n2, plen, direction, float(np.dot(fwd, n3)))
+                )
+            self.linespec[i] = specs
+
+    def solve(self, V, pref):
+        out = pref.copy()
+        for i in range(self.n_agents):
+            if not self.live[i]:
+                out[i] = 0.0
+                continue
+            e1, e2, fwd = self.e1[i], self.e2[i], self.fwd[i]
+            pref2 = to2(pref[i], e1, e2)
+            fwd_comp = float(np.dot(pref[i], fwd))
+            lines = []
+            specs = self.linespec[i]
+            if specs:
+                for rhs, j, n3, resp, n2, plen, direction, fwd_n3 in specs:
+                    b = (1.0 - resp) * float(np.dot(V[i], n3)) + resp * (
+                        float(np.dot(V[j], n3)) + rhs
+                    )
+                    bound = (b - fwd_comp * fwd_n3) / plen
+                    lines.append((direction, n2 * bound))
+            spd_lim = max(float(self.vmax[i]), 0.05)
+            result, ok = _lp2(lines, pref2, spd_lim)
+            if not ok:
+                result = _lp3(lines, pref2, spd_lim)
+            v3 = result[0] * e1 + result[1] * e2
+            out[i] = v3 + fwd * fwd_comp
+        return out
+
+
 def orca_from_pairs(
     P, V, pref, mass, live, vmax, dt, cam_pos, pair_i, pair_j, gaps, normals,
     gap_min=GAP_MIN_DEFAULT, tau=ORCA_TAU,
@@ -286,64 +395,6 @@ def orca_from_pairs(
     (v_i - v_j) · n >= (gap_min - g) / tau, split by mass. Avoidance may exceed amax
     so units can brake in time; heading is still turn-clamped by the caller.
     """
-    n_agents = len(P)
-    out = pref.copy()
-    cons = [[] for _ in range(n_agents)]
-    for k in range(len(pair_i)):
-        i = int(pair_i[k])
-        j = int(pair_j[k])
-        if not live[i] or not live[j]:
-            continue
-        if float(np.dot(P[i] - P[j], P[i] - P[j])) > ORCA_NBR_DIST * ORCA_NBR_DIST:
-            continue
-        n3 = np.asarray(normals[k], dtype=np.float64)
-        ln = float(np.linalg.norm(n3))
-        if ln < 1e-8:
-            continue
-        n3 = n3 / ln
-        rhs_rel = (float(gap_min) - float(gaps[k])) / max(float(tau), 1e-3)
-        if float(gaps[k]) < 0.0:
-            # Already overlapping: both must separate. Mass-only responsibility
-            # lets a heavy Sanitizer (mass 2) plow inward through Harvesters.
-            ri, rj = 0.5, 0.5
-        elif mass[i] < mass[j] - 1e-9:
-            ri, rj = 1.0, 0.0
-        elif mass[i] > mass[j] + 1e-9:
-            ri, rj = 0.0, 1.0
-        else:
-            ri, rj = 0.5, 0.5
-        cons[i].append((rhs_rel, j, n3, ri))
-        cons[j].append((rhs_rel, i, -n3, rj))
-
-    for i in range(n_agents):
-        if not live[i]:
-            out[i] = 0.0
-            continue
-        e1, e2, fwd = cam_basis(P[i], cam_pos)
-        pref2 = to2(pref[i], e1, e2)
-        lines = []
-        fwd_comp = float(np.dot(pref[i], fwd))
-        # Tightest first (largest rhs_rel); cap like SPEC ORCA_MAX_NBR.
-        neigh = [c for c in cons[i] if c[3] > 0.0]
-        neigh.sort(reverse=True)
-        for rhs_rel, j, n3, resp in neigh[:ORCA_MAX_NBR]:
-            n2 = to2(n3, e1, e2)
-            plen = math.sqrt(float(np.dot(n2, n2)))
-            if plen < 0.15:
-                continue
-            n2 = n2 / plen
-            # v_i · n3 = v2 · (n3 in plane) + fwd_comp * (fwd · n3)
-            # v2 · n2 >= (b - fwd_comp * (fwd · n3)) / plen
-            b = (1.0 - resp) * float(np.dot(V[i], n3)) + resp * (float(np.dot(V[j], n3)) + rhs_rel)
-            bound = (b - fwd_comp * float(np.dot(fwd, n3))) / plen
-            point = n2 * bound
-            direction = np.array([n2[1], -n2[0]])
-            lines.append((direction, point))
-        spd_lim = max(float(vmax[i]), 0.05)
-        result, ok = _lp2(lines, pref2, spd_lim)
-        if not ok:
-            result = _lp3(lines, pref2, spd_lim)
-        v3 = result[0] * e1 + result[1] * e2
-        v3 = v3 + fwd * fwd_comp
-        out[i] = v3
-    return out
+    return OrcaPairSolver(
+        P, mass, live, vmax, cam_pos, pair_i, pair_j, gaps, normals, gap_min, tau
+    ).solve(V, pref)
