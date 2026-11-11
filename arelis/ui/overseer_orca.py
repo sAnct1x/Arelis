@@ -296,7 +296,11 @@ def orca_from_pairs(
             continue
         n3 = n3 / ln
         rhs_rel = (float(gap_min) - float(gaps[k])) / max(float(tau), 1e-3)
-        if mass[i] < mass[j] - 1e-9:
+        if float(gaps[k]) < 0.0:
+            # Already overlapping: both must separate. Mass-only responsibility
+            # lets a heavy Sanitizer (mass 2) plow inward through Harvesters.
+            ri, rj = 0.5, 0.5
+        elif mass[i] < mass[j] - 1e-9:
             ri, rj = 1.0, 0.0
         elif mass[i] > mass[j] + 1e-9:
             ri, rj = 0.0, 1.0

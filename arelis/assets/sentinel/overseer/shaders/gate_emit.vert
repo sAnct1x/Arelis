@@ -1,0 +1,7 @@
+VARYING vec4 vCol;
+VARYING float vU;
+void MAIN() {
+    vCol = INSTANCE_COLOR;
+    vU = UV0.x;
+    POSITION = INSTANCE_MODELVIEWPROJECTION_MATRIX * vec4(VERTEX, 1.0);
+}

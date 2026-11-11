@@ -67,7 +67,7 @@ MOTE_FRACTION = 0.40
 # orb 5 (core, filaments, 2 shells, one ornament draw for three rings
 # plus beads), sources 2, tentacles 3, lanes, perimeter, conduits,
 # particles, glyphs, 1 star draw (three parallax layers instanced)
-SCENE_FIXED_DRAW = 16
+SCENE_FIXED_DRAW = 22
 MAX_UNIT_DRAW = 6  # 3 LOD x (1 head + 1 tentacle); tentacles stay in the fixed count
 MAX_TRIS = 300_000
 
@@ -1667,7 +1667,12 @@ def build_buckets(units: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]
                 "state": state,
                 "lenMul": float(u.get("lenMul") or 1.0),
                 "kappa": float(u.get("kappa") or 0.0),
-                "eyeMul": 0.1 if limp else (0.0 if "DOCKED" in state.upper() else 1.0),
+                "eyeMul": (
+                    0.1 if limp
+                    else 0.0 if "DOCKED" in state.upper()
+                    else 2.9 if eye_color(u, caste) == EYE_THREAT
+                    else 1.0
+                ),
                 "open_fetches": int(u.get("open_fetches") or 0),
             }
         )

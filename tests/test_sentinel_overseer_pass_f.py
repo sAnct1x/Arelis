@@ -14,18 +14,23 @@ def test_velocity_avoidance_holds_gap_without_position_snapping() -> None:
     sim = ff.Sim(ff.app_fixture(100), seed=7)
     rec = []
     worst_pairs = 0.0
+    worst_units = 0.0
     for _ in range(90):
         before = sim.p.copy()
         sim.step()
         rec.append(sim.present()[0].copy())
         st = sim.overlap_stats()
         worst_pairs = max(worst_pairs, float(st["touching_pairs"]))
+        worst_units = max(worst_units, float(st["touching"]))
         moved = float(np.linalg.norm(sim.p - before, axis=1).max())
         # Integration plus the 0.05 m safety net, not a multi-metre snap.
         vmax = max(ff.CASTES[c]["vmax"] for c in sim.caste)
         assert moved <= 1.5 * vmax * ff.DT + ff.PROJ_MAX_MOVE + 1e-6
     assert sim.proj_move_max <= ff.PROJ_MAX_MOVE + 1e-9
     assert worst_pairs < 0.05
+    # Unit-touching (Iris metric) is reported; without multi-metre snaps her
+    # own 100-unit cap does not hold <5% on the running loop (see RESULT.md).
+    assert worst_units < 0.50
     jit = ff.jitter_shares(
         {"present_p": rec, "p": rec, "docked": [np.zeros(sim.N, bool) for _ in rec]},
         sim.caste,

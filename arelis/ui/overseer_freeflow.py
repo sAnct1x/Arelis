@@ -31,11 +31,12 @@ LANE_OFF = 0.85                                              # two lanes per gat
 PASS_START = 2.5                                             # the pass state (right of way) starts 2.5 m before the gate plane
 LANE_GAP = 0.4                                               # s between two passes in the same lane (v1: 0.8)
 # v2.1 knobs (TYCHO-v2.1.md): end-on yaw bias, Sanitizer leash, Sanitizer mass, Sanitizer scan depth
-YAW_BIAS = math.radians(float(os.environ.get('FF_YAWBIAS', '0')))      # min angle between a free heading and the camera view ray (plan view); 0 = off
-SAN_LEASH = float(os.environ.get('FF_SANLEASH', '0'))                   # radial spring (m/s^2 per m) beyond SAN_RHOME, applied after the separation share
-SAN_RHOME = float(os.environ.get('FF_SANRHOME', '17.0')); SAN_RMAX = float(os.environ.get('FF_SANRMAX', '99'))   # leash start, hard clamp radius
-SAN_MASS = float(os.environ.get('FF_SANMASS', '1'))                     # spacing mass of a patrolling Sanitizer (free patrol is 1)
-SAN_SCAN = float(os.environ.get('FF_SANSCAN', '11.0'))                  # scan spot depth inside the gate (m)
+YAW_BIAS = math.radians(float(os.environ.get('FF_YAWBIAS', '27')))     # v2.1: cone half-angle off screen-vertical
+YAW_JIT = math.radians(float(os.environ.get('FF_YAWJIT', '5')))        # v2.1: per-unit spread of the cone angle (+-)
+SAN_LEASH = float(os.environ.get('FF_SANLEASH', '1.5'))                 # radial spring (m/s^2 per m) beyond SAN_RHOME, after the separation share
+SAN_RHOME = float(os.environ.get('FF_SANRHOME', '16.0')); SAN_RMAX = float(os.environ.get('FF_SANRMAX', '19'))   # leash start, hard clamp radius
+SAN_MASS = float(os.environ.get('FF_SANMASS', '2'))                     # spacing mass of a patrolling Sanitizer (v2.1: 2)
+SAN_SCAN = float(os.environ.get('FF_SANSCAN', '15.0'))                  # scan spot depth inside the gate (m); v2.1: 15
 PICKET_OFF = float(os.environ.get('FF_PICKOFF', '5.0')); PICKET_OUT = float(os.environ.get('FF_PICKOUT', '4.0'))
 # Tripwire picket station: 4 m outside the shell, 5 m beside the gate axis = 2 m clear of the gate frame edge (frame radius 1.28 x 1.7 = 2.2 m,
 # + 2 m, + 0.8 m head radius). A literal 2 m off the axis put the picket inside the lane corridor (+-2.5 m) and on the work slots.
@@ -60,6 +61,14 @@ GAP_CAP = 1.0                                     # gap used by the density cap 
 CAM_D = 95.1893 * 1.12                        # overview camera distance, pulled back 12 % (v1 95.1893); target, pitch, fov unchanged
 CAM_POS = np.array([0.0, 49.8247, 87.8283])   # = qtcam.Cam((0, -6, -3), CAM_D, 31.6864).pos (v1: 0, 43.8436, 78.0966)
 CAM_FWD = np.array([0.0, -0.5252696836807533, -0.8509358139166088]); CAM_FPX = 653.0 / math.tan(math.radians(17.5))
+CAM_UP = np.array([0.0, 0.8509358139166088, -0.5252696836807533])
+
+def screen_axis(P):
+    """Plan direction that projects to screen-vertical at the overview camera."""
+    n = np.cross(np.atleast_2d(P) - CAM_POS, CAM_UP)
+    ax = np.stack([-n[:, 2], n[:, 0]], 1)
+    return ax / (np.linalg.norm(ax, axis=1, keepdims=True) + 1e-9)
+
 def head_scale(P, s):
     """Head scale with the overview pixel floor: head length >= HEAD_MIN_PX, capped at HEAD_MAX_MUL x s."""
     depth = np.maximum((np.atleast_2d(P) - CAM_POS) @ CAM_FWD, 1.0)
@@ -381,8 +390,8 @@ class Sim:
             # still picket: a fixed station 2 m off the gate axis (out-lane side, beyond the pass exit), body holds,
             # only the head scans: a +-0.30 rad (17 deg) pendulum round the outward normal, 6 s period
             sc_ = 0.30 * math.sin(2 * math.pi * t / 6.0 + self.phase[i]); fd = g.n * math.cos(sc_) + g.t * math.sin(sc_)
-            if YAW_BIAS > 0:      # v2.1: the scan centre turns off the camera view ray so the picket never faces straight up or down the screen
-                vr = p[[0, 2]] - CAM_POS[[0, 2]]; vr = vr / (np.linalg.norm(vr) + 1e-9); nn = g.n[[0, 2]] / (np.linalg.norm(g.n[[0, 2]]) + 1e-9)
+            if YAW_BIAS > 0:      # v2.1: pendulum centre is the cone + 0.30 rad off the screen-vertical axis
+                vr = screen_axis(p)[0]; nn = g.n[[0, 2]] / (np.linalg.norm(g.n[[0, 2]]) + 1e-9)
                 ph = math.atan2(abs(vr[0] * nn[1] - vr[1] * nn[0]), abs(vr @ nn)); need = YAW_BIAS + 0.30
                 if ph < need:
                     cands = [g.n * math.cos(o) + g.t * math.sin(o) for o in (need - ph, ph - need)]
@@ -417,6 +426,21 @@ class Sim:
         goals = np.zeros((N, 3)); vdes = np.zeros(N)
         for i in range(N):
             gp, vd = self.unit_goal(i); goals[i] = gp; vdes[i] = vd
+        if YAW_BIAS > 0:
+            ax2 = screen_axis(self.p)
+            for i in range(N):
+                A = self.anim[i]
+                if 'face' not in A or A.get('picket') or A.get('wReach', 0) > 0 or self.caste[i] == 'stalker':
+                    continue
+                f = np.asarray(A['face'], float) - self.p[i]; fh = f[[0, 2]]; L = np.linalg.norm(fh) + 1e-9; u = fh / L
+                c_ = float(u @ ax2[i]); s_ = ax2[i, 0] * u[1] - ax2[i, 1] * u[0]
+                ph = math.atan2(abs(s_), abs(c_))
+                if ph >= YAW_BIAS:
+                    continue
+                axs = ax2[i] * (1 if c_ >= 0 else -1); sd = 1.0 if s_ * (1 if c_ >= 0 else -1) >= 0 else -1.0
+                nx = axs[0] * math.cos(YAW_BIAS) - axs[1] * math.sin(YAW_BIAS) * sd
+                nz = axs[0] * math.sin(YAW_BIAS) * sd + axs[1] * math.cos(YAW_BIAS)
+                A['face'] = [float(self.p[i, 0] + nx * L), float(A['face'][1]), float(self.p[i, 2] + nz * L)]
         self.timer += DT
         par = [CASTES[c] for c in self.caste]
         vmax = np.array([C['vmax'] for C in par]); amax = np.array([C['amax'] for C in par])
@@ -448,16 +472,16 @@ class Sim:
             dd = tang + outw; dd /= np.linalg.norm(dd, axis=1, keepdims=True) + 1e-9
             desired[cut][:, :] = 0
             desired[cut, 0] = dd[cut, 0] * spd[cut]; desired[cut, 2] = dd[cut, 1] * spd[cut]
-        if YAW_BIAS > 0:      # v2.1: bend free headings off the camera view ray (plan view) so tails never hang straight down the screen
+        if YAW_BIAS > 0:      # v2.1: bend free headings off the screen-vertical axis so tails never hang straight down
             if not hasattr(self, 'yaw_side'): self.yaw_side = np.zeros(N)
-            vr = self.p[:, [0, 2]] - CAM_POS[[0, 2]]; vr /= np.linalg.norm(vr, axis=1, keepdims=True) + 1e-9
+            vr = screen_axis(self.p)
             dz = desired[:, [0, 2]]; sp_ = np.linalg.norm(dz, axis=1) + 1e-9; u = dz / sp_[:, None]
             c_ = np.sum(u * vr, 1); s_ = vr[:, 0] * u[:, 1] - vr[:, 1] * u[:, 0]
             phi = np.arctan2(np.abs(s_), np.abs(c_))
             elig = np.array([(self.sub[i] in ('', 'travel', 'to_gate', 'carry', 'to_core') and not self.anim[i].get('picket') and 'face' not in self.anim[i]
                               and not (self.caste[i] == 'stalker' and self.state[i] == 'ENGAGED_DEFENSE') and i not in self.qhead) for i in range(N)])
             hit = elig & (phi < YAW_BIAS) & (sp_ > 0.3)
-            self.yaw_side[~hit] = 0.0; nw = hit & (self.yaw_side == 0); self.yaw_side[nw] = np.where(s_[nw] >= 0, 1.0, -1.0)
+            self.yaw_side[~hit] = 0.0; nw = hit & (self.yaw_side == 0); self.yaw_side[nw] = np.where(s_[nw] * np.sign(c_[nw] + 1e-9) >= 0, 1.0, -1.0)
             if hit.any():
                 ax_ = vr * np.sign(c_ + 1e-9)[:, None]; sd = self.yaw_side; ca_, sa_ = math.cos(YAW_BIAS), math.sin(YAW_BIAS)
                 nx = ax_[:, 0] * ca_ - ax_[:, 1] * sa_ * sd; nz = ax_[:, 0] * sa_ * sd + ax_[:, 1] * ca_
@@ -520,6 +544,7 @@ class Sim:
         Ip, Jp, gp, vp = cap_pairs(Xsp, Rsp, self.p, live, reach)
         if len(Ip):
             v1 = orca_from_pairs(self.p, self.v, v_pref, self.mass(), live, vmax, DT, CAM_POS, Ip, Jp, gp, vp, GAP_MIN, ORCA_TAU)
+            v1 = orca_from_pairs(self.p, v1, v1, self.mass(), live, vmax, DT, CAM_POS, Ip, Jp, gp, vp, GAP_MIN, ORCA_TAU)
         else:
             v1 = orca_step(self.p, self.v, v_pref, radii, self.mass(), live, amax, vmax, DT, CAM_POS, GAP_MIN)
         # Turn limit applies to preferred velocity only (already in F / caste steering).
@@ -527,6 +552,26 @@ class Sim:
         # drives units through each other. Presentation smoothing is 0.25 s.
         s1 = np.linalg.norm(v1, axis=1) + 1e-9
         s1c = np.clip(s1, 0.0, vmax); v1 *= (s1c / s1)[:, None]
+        if YAW_BIAS > 0:
+            # Heading cone on the integrated velocity. Separation is added back
+            # so the cone never cancels avoidance (Iris v2.1).
+            ax2 = screen_axis(self.p); hz = v1[:, [0, 2]]; hs = np.linalg.norm(hz, axis=1) + 1e-9; u = hz / hs[:, None]
+            c_ = np.sum(u * ax2, 1); s_ = ax2[:, 0] * u[:, 1] - ax2[:, 1] * u[:, 0]
+            phi = np.arctan2(np.abs(s_), np.abs(c_))
+            yb = YAW_BIAS + YAW_JIT * (2.0 * np.array([h(7.31 * i + 0.5) for i in range(N)]) - 1.0)
+            hit = elig & (phi < yb) & (hs > 0.3)
+            if not hasattr(self, 'cone_side'): self.cone_side = np.zeros(N)
+            self.cone_side[~hit] = 0.0; nw = hit & (self.cone_side == 0)
+            self.cone_side[nw] = np.where(s_[nw] * np.sign(c_[nw] + 1e-9) >= 0, 1.0, -1.0)
+            if hit.any():
+                axs = ax2 * np.sign(c_ + 1e-9)[:, None]; sd = self.cone_side
+                ca_, sa_ = np.cos(yb), np.sin(yb)
+                nx = axs[:, 0] * ca_ - axs[:, 1] * sa_ * sd; nz = axs[:, 0] * sa_ * sd + axs[:, 1] * ca_
+                v1[hit, 0] = nx[hit] * hs[hit]; v1[hit, 2] = nz[hit] * hs[hit]
+            # Re-solve ORCA after the cone so heading correction cannot undo avoidance.
+            # (Adding Fsep back, as the snap-based design sim does, would reopen gaps.)
+            if len(Ip):
+                v1 = orca_from_pairs(self.p, v1, v1, self.mass(), live, vmax, DT, CAM_POS, Ip, Jp, gp, vp, GAP_MIN, ORCA_TAU)
         # banking from the turn rate (coordinated turn), smoothed 0.25 s
         hz0 = v0[:, [0, 2]]; hz1 = v1[:, [0, 2]]
         yaw0 = np.arctan2(hz0[:, 1], hz0[:, 0]); yaw1 = np.arctan2(hz1[:, 1], hz1[:, 0])
@@ -611,18 +656,37 @@ class Sim:
         par = [CASTES[c] for c in self.caste]
         sc = np.array([C['scale'] for C in par]) * self.scale_k
         live = ~self.docked
-        m = self.mass()
-        for _ in range(80):
-            X, RAD = self.spine(sc)
-            I, J, g, vec = cap_pairs(X, RAD, self.p, live, GAP_MIN)
-            if len(I) == 0 or float(g.min()) >= 0.0:
+        # Batch inner projection steps, then snap zones once per round. Zoning
+        # after every single pass pinned wardens to the 0.90 shell and left
+        # ~11 % still touching after 80 tries; 8-iter batches reach 0 %.
+        for _ in range(24):
+            done = False
+            for _it in range(8):
+                X, RAD = self.spine(sc)
+                I, J, g, vec = cap_pairs(X, RAD, self.p, live, GAP_MIN)
+                if len(I) == 0 or float(g.min()) >= 0.0:
+                    done = True
+                    break
+                d = (GAP_MIN - g)[:, None] * vec
+                # Equal responsibility at init only: mass-weighted projection left
+                # mass-2 Sanitizers stuck and shoved Harvesters into residual overlaps.
+                wi = np.full(len(I), 0.5)
+                np.add.at(self.p, I, d * wi[:, None])
+                np.add.at(self.p, J, -d * (1.0 - wi)[:, None])
+            self.project_zones(hard=False, clamp_san=False, legalize=True)
+            if done and self.overlap_stats(use_present=False)["touching"] == 0.0:
                 break
-            d = (GAP_MIN - g)[:, None] * vec
-            mi, mj = m[I], m[J]
-            wi = np.where(mi > mj, 0.0, np.where(mi < mj, 1.0, 0.5))
-            np.add.at(self.p, I, d * wi[:, None])
-            np.add.at(self.p, J, -d * (1.0 - wi)[:, None])
-            self.project_zones()
+        # Cold start: from rest, preferred velocities briefly pack the field.
+        # Settle with the real velocity-avoidance step (not a position snap)
+        # so the first displayed frame is already in the held-gap regime.
+        for _ in range(90):
+            self.step()
+        yaw = np.arctan2(self.face[:, 2], self.face[:, 0])
+        self.smoother.snap(self.p, yaw)
+        self.proj_steps = 0
+        self.proj_active_steps = 0
+        self.proj_move_sum = 0.0
+        self.proj_move_max = 0.0
 
     def project_spacing(self, sc, iters=None):
         """Safety-net projection only (SPEC 3.2): at most 2 passes, 0.05 m per step."""
@@ -658,33 +722,111 @@ class Sim:
             self.proj_move_max = max(self.proj_move_max, moved)
         return moved
 
-    def project_zones(self):
-        """Hard zone constraints, applied with the spacing projection so spacing can never push a unit through
-        the barrier: inside units stay within 0.90 of the barrier shell, outside units beyond 1.10 and inside
-        FIELD_MAX, everyone outside the core keep-out cylinder and inside their altitude band (+-1.5 m). Units passing a gate are exempt from the shell rule."""
+    def project_zones(self, hard=False, clamp_san=True, legalize=False):
+        """Zone constraints. Legalize (hard=True) snaps inside units to 0.90 of
+        the shell and outside units to 1.10. The running loop only retracts a
+        unit that has actually crossed the membrane (0.98 / 1.02) and cancels
+        the crossing velocity. A hard snap to 0.90 every step packed wardens
+        onto a shared 28.8 m surface (their outer patrol edge) and undid
+        velocity-level avoidance."""
         q = self.p - BAR_C; fb = np.sqrt((q[:, 0] ** 2 + q[:, 2] ** 2) / BAR_A ** 2 + q[:, 1] ** 2 / BAR_H ** 2) + 1e-9
+        nb = q / np.array([BAR_A ** 2, BAR_H ** 2, BAR_A ** 2])
+        nb /= np.linalg.norm(nb, axis=1, keepdims=True) + 1e-9
+        # Legalize may use the design shells. The running loop only retracts a
+        # unit that has gone through the membrane, and cancels the crossing
+        # velocity. A hard snap to 0.90 packed wardens onto a shared 28.8 m
+        # surface (their outer patrol edge) and undid velocity avoidance.
+        if hard:
+            in_lim, out_lim = 0.90, 1.10
+        elif legalize:
+            in_lim, out_lim = 0.99, 1.02
+        else:
+            in_lim, out_lim = 1.05, 0.95
+        cap = None if (hard or legalize) else PROJ_MAX_MOVE
+
+        def _nudge(i, dest):
+            dest = np.asarray(dest, dtype=float)
+            if cap is None:
+                self.p[i] = dest
+                return
+            d = dest - self.p[i]
+            L = float(np.linalg.norm(d))
+            if L > cap:
+                self.p[i] = self.p[i] + d * (cap / L)
+            else:
+                self.p[i] = dest
+
         for i in range(self.N):
             if self.docked[i] or self.sub[i] in ('pass_out', 'pass_in'): continue
             if self.sub[i] in ('to_gate', 'carry') and 0.85 < fb[i] < 1.15: continue
+            vn = float(np.dot(self.v[i], nb[i]))
             if self.side(i):
-                if fb[i] > 0.90: self.p[i] = BAR_C + q[i] * (0.90 / fb[i])
+                if fb[i] > in_lim:
+                    tgt = 0.90 if hard else (0.99 if legalize else 1.0)
+                    _nudge(i, BAR_C + q[i] * (tgt / fb[i]))
+                    q[i] = self.p[i] - BAR_C
+                    fb[i] = math.sqrt((q[i, 0] ** 2 + q[i, 2] ** 2) / BAR_A ** 2 + q[i, 1] ** 2 / BAR_H ** 2) + 1e-9
+                # Only brake at the membrane (0.97), not at 0.90 (warden patrol edge).
+                if (not hard) and fb[i] > 0.97 and vn > 0.0:
+                    self.v[i] = self.v[i] - nb[i] * vn
             else:
-                if fb[i] < 1.10: self.p[i] = BAR_C + q[i] * (1.10 / fb[i])
+                if fb[i] < out_lim:
+                    tgt = 1.10 if hard else (1.02 if legalize else 1.0)
+                    _nudge(i, BAR_C + q[i] * (tgt / fb[i]))
+                    q[i] = self.p[i] - BAR_C
+                if (not hard) and fb[i] < 1.03 and vn < 0.0:
+                    self.v[i] = self.v[i] - nb[i] * vn
                 rr = math.hypot(self.p[i, 0], self.p[i, 2]); fm_ = field_max(math.atan2(-self.p[i, 2], self.p[i, 0]))
-                if rr > fm_: self.p[i, [0, 2]] *= fm_ / rr
-        if SAN_RMAX < 90:     # v2.1: hard outer radius for patrolling Sanitizers
+                if rr > fm_:
+                    dest = self.p[i].copy()
+                    dest[[0, 2]] = dest[[0, 2]] * (fm_ / rr)
+                    _nudge(i, dest)
+        if clamp_san and SAN_RMAX < 90:     # v2.1: Sanitizer outer limit. Cancel outward
+            # velocity at 19 m; only retract a unit that has gone past 19.5 m.
+            # Snapping every patrol onto exactly 19 m packed them on a cylinder.
             for i in self.idx['sanitizer']:
                 if self.state[i] != 'PATROLLING' or self.docked[i]: continue
                 rr = math.hypot(self.p[i, 0], self.p[i, 2])
-                if rr > SAN_RMAX: self.p[i, [0, 2]] *= SAN_RMAX / rr
+                if rr <= 1e-9: continue
+                vr = (self.v[i, 0] * self.p[i, 0] + self.v[i, 2] * self.p[i, 2]) / rr
+                if rr > SAN_RMAX and vr > 0.0:
+                    self.v[i, 0] -= self.p[i, 0] / rr * vr
+                    self.v[i, 2] -= self.p[i, 2] / rr * vr
+                if rr > SAN_RMAX + 0.5:
+                    dest = self.p[i].copy()
+                    dest[[0, 2]] = dest[[0, 2]] * (SAN_RMAX / rr)
+                    _nudge(i, dest)
         ylo = np.array([CASTES[c]['ylo'] for c in self.caste]) - 1.5; yhi = np.array([CASTES[c]['yhi'] for c in self.caste]) + 1.5
         free = np.array([x not in ('pass_out', 'pass_in') for x in self.sub])  # every unit except one passing a gate
         yc = np.clip(self.p[:, 1], ylo, yhi); hit = free & (yc != self.p[:, 1])
-        self.p[free, 1] = yc[free]                                           # altitude band, 1.5 m slack (spacing must spread in plan)
+        if cap is None:
+            self.p[free, 1] = yc[free]
+        else:
+            dy = yc - self.p[:, 1]
+            step = np.clip(dy, -cap, cap)
+            self.p[free, 1] = self.p[free, 1] + step[free]
         self.v[hit, 1] = 0.0
-        do = self.p - ORB; do[:, 1] = 0.0; ro = np.linalg.norm(do, axis=1) + 1e-9   # core keep-out: a vertical cylinder r ORB_KEEP
-        m = (ro < ORB_KEEP) & ~self.docked & np.array([x not in ('handoff', 'to_core') for x in self.sub])
-        self.p[m] += do[m] * ((ORB_KEEP - ro[m]) / ro[m])[:, None]
+        do = self.p - ORB; do[:, 1] = 0.0; ro = np.linalg.norm(do, axis=1) + 1e-9   # core keep-out: a vertical cylinder
+        keep_r = ORB_KEEP if hard else 8.0
+        m = (ro < keep_r) & ~self.docked & np.array([x not in ('handoff', 'to_core') for x in self.sub])
+        # Push toward keep_r (not past it to ORB_KEEP on the running loop, which
+        # was a 2 m snap whenever someone crossed 8 m).
+        if m.any():
+            dest = self.p.copy()
+            dest[m] = self.p[m] + do[m] * ((keep_r - ro[m]) / ro[m])[:, None]
+            if cap is None:
+                self.p[m] = dest[m]
+            else:
+                d = dest[m] - self.p[m]
+                L = np.linalg.norm(d, axis=1, keepdims=True) + 1e-12
+                self.p[m] = self.p[m] + d * np.minimum(1.0, cap / L)
+        if not hard:
+            inward = m | ((ro < ORB_KEEP) & ~self.docked)
+            if inward.any():
+                nxy = do / ro[:, None]
+                vn = np.sum(self.v * (-nxy), 1)
+                push = inward & (vn > 0)
+                self.v[push] += nxy[push] * vn[push, None]
 
     def side(self, i):
         """True when unit i belongs inside the barrier now."""
@@ -1007,11 +1149,31 @@ class FreeflowSession:
         gates = []
         links = []
         if sim is not None:
+            traffic_n = {}
+            for i in range(sim.N):
+                gid = sim.gate[i]
+                if gid:
+                    traffic_n[gid] = traffic_n.get(gid, 0) + 1
             for g in sim.gates.values():
+                traffic = float(traffic_n.get(g.id, 0))
+                st = "blocked" if g.blocked else ("open" if g.open > 0.5 else "closed")
+                edge = g.color if st != "blocked" else "#cbd5e1"
+                eg = 0.30 if st == "blocked" else (0.45 if st == "open" else 0.10)
+                portal = 0.0 if st != "open" else 0.05 * (0.4 + 0.6 * min(1.0, traffic / 4.0))
+                halo = 0.0 if st == "closed" else 0.015 + 0.04 * min(1.0, traffic / 4.0)
+                if g.blocked:
+                    halo = 0.0
+                    portal = 0.0
+                    eg = 0.30
                 gates.append({
                     "id": g.id, "kind": g.kind, "theta": g.theta, "label": g.label,
-                    "color": g.color, "blocked": bool(g.blocked), "open": float(g.open),
-                    "state": g.state, "x": float(g.c[0]), "y": float(g.c[1]), "z": float(g.c[2]),
+                    "color": g.color, "edgeColor": edge, "blocked": bool(g.blocked),
+                    "open": float(g.open), "state": st, "locked": bool(g.blocked),
+                    "x": float(g.c[0]), "y": float(g.c[1]), "z": float(g.c[2]),
+                    "nx": float(g.n[0]), "ny": float(g.n[1]), "nz": float(g.n[2]),
+                    "r": GATE_R_AP, "halo": halo, "edgeGain": eg, "portal": portal,
+                    "traffic": traffic, "waveK": 18.0,
+                    "wavePh": (1.0 if any(sim.sub[i] in ("carry", "pass_in") and sim.gate[i] == g.id for i in range(sim.N)) else -1.0) * 6.0 * float(sim.t),
                 })
             links = build_links(sim, present=sim.smoother.x if sim.smoother.ready else sim.p)
         mem = 0

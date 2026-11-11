@@ -122,6 +122,21 @@ Item {
     property var fieldEdgePoints: []
     property var barrierSpec: ({ cx: 0, cy: 0.5, cz: 0, a: 32, h: 11 })
     property bool egressMuted: false
+    property bool orbHovered: false
+    property var gateList: []
+    property var harvestLinks: []
+    property int _gateUniformTick: 0
+    property var gateFramePositions: []
+    property var gateFrameIndexes: []
+    property var gateBladePositions: []
+    property var gateBladeIndexes: []
+    property var gatePortalPositions: []
+    property var gatePortalIndexes: []
+    property var gateLockPositions: []
+    property var gateLockIndexes: []
+    property var linkPositions: []
+    property var linkIndexes: []
+    property var linkColors: []
     property string swarmGroupBy: "caste"
     property string swarmSearch: ""
     property string logFilter: "all"
@@ -174,7 +189,7 @@ Item {
     readonly property real glowThreshold: 1.0
     readonly property real eyeEmission: 2.4
     // Smallest on-screen eye radius in px, so every eye feeds the bloom.
-    readonly property real eyeMinPx: 2.0
+    readonly property real eyeMinPx: 2.4
     // Lane guides stay soft: edge lanes 0.28, middle lanes 0.16 of caste colour.
     // In coreFocus the lanes crossing the orb are dimmed to 0.35 of those.
     readonly property real laneEdgeEmission: 0.28
@@ -209,14 +224,14 @@ Item {
     property real orbEnergyShown: 0.3
     // Pass D visual values. Bloom stays 3 levels, threshold 1.0.
     readonly property real orbRadius: 2.6
-    readonly property vector3d orbCentre: Qt.vector3d(0, 1.6, 0)
+    readonly property vector3d orbCentre: Qt.vector3d(0, 1.6 + Math.min(0.06, 0.02 * toolsCount), 0)
     readonly property real orbCoreGain: 0.78
     readonly property real orbCoreFloor: 0.5
     readonly property real orbCoreSoftPow: 1.6
     readonly property real orbCoreTightPow: 16.0
     readonly property real orbCoreTightMix: 0.7
     readonly property real orbFilamentGain: 0.85
-    readonly property real orbShellGain: 0.75
+    property real orbShellGain: 0.75 * (1.0 + 0.20 * Math.min(memoryCount, 24) / 24.0)
     readonly property real orbShellBody: 0.06
     readonly property real orbPulseShellGain: 0.6
     readonly property real orbShellPower: 3.0
@@ -251,6 +266,7 @@ Item {
     property bool coreMode: false
     property bool coreTransitioning: false
     property real coreEaseU: 0
+    readonly property real coreToneU: coreTransitioning ? (coreEaseIntent === "enter" ? coreEaseU : 1 - coreEaseU) : (coreMode ? 1 : 0)
     property real coreEaseFromD: 106.6120
     property real coreEaseFromPitch: 31.6864
     property real coreEaseFromX: 0
@@ -293,6 +309,10 @@ Item {
     InstanceList { id: sourceInstanceList }
     InstanceList { id: memoryBeadInstanceList }
     InstanceList { id: toolBeadInstanceList }
+    InstanceList { id: gateFrameInstanceList }
+    InstanceList { id: gateBladeInstanceList }
+    InstanceList { id: gatePortalInstanceList }
+    InstanceList { id: gateLockInstanceList }
     InstanceList { id: tentacleLod0List }
     InstanceList { id: tentacleLod1List }
     InstanceList { id: tentacleLod2List }
@@ -441,6 +461,10 @@ Item {
         if (frame.barrier)
             barrierSpec = frame.barrier
         egressMuted = !!frame.egressMuted
+        gateList = frame.gates || []
+        harvestLinks = frame.links || []
+        fillGateInstances()
+        rebuildLinkMesh()
         hiveActivity = Math.max(0, Math.min(1, finiteNum(frame.hiveActivity, 0)))
         applyOrb(frame.orb || ({}))
         sourceNodeSpecs = frame.sourceNodes || []
@@ -453,11 +477,12 @@ Item {
         liveCounts = counts
         budgetTris = tris
         unitDrawCalls = mergeUnitDraws()
-        budgetDrawCalls = unitDrawCalls + 16  // SCENE_FIXED_DRAW: orb (one ornament draw), sources, tentacles, lanes, stars
+        budgetDrawCalls = unitDrawCalls + 22  // SCENE_FIXED_DRAW: orb, sources, tentacles, stars, barrier, gates, links, glint
         lodCounts = lods
         recountEntries(live)
         instanceRecords = recs
         rememberUnitPositions(buckets)
+        fillEyeGlints()
         sourceLabelSpecs = frame.sourceLabels || []
         updateOverview()
         projectSourceLabels()
@@ -996,29 +1021,21 @@ Item {
     }
 
     function rebuildOrbOrnaments() {
-        var key = memoryCount + "|" + toolsCount + "|" + resultsRadius.toFixed(3) + "|" + (resultsFade > 0.001 ? "1" : "0")
+        var key = "motes|" + memoryCount
         if (key === orbOrnamentKey && orbOrnamentPositions && orbOrnamentPositions.length)
             return
         orbOrnamentKey = key
         var pos = [], nrm = [], col = [], uv = [], idx = []
-        _orbPushTorus(pos, nrm, col, uv, idx, memoryRingRadius, 0.016, 0)
-        _orbPushTorus(pos, nrm, col, uv, idx, toolsRingRadius, 0.020, 1)
-        if (resultsFade > 0.001)
-            _orbPushTorus(pos, nrm, col, uv, idx, resultsRingAuthored, 0.011, 2)
-        var i, a, n
-        n = memoryCount
+        var i, n
+        n = Math.min(memoryCount, 48)
+        var moteR = 2.444, moteRad = 0.075
         for (i = 0; i < n; i++) {
-            a = memPhase + i * 2 * Math.PI / Math.max(n, 1)
+            var y = 1.0 - 2.0 * (i + 0.5) / Math.max(n, 1)
+            var rr = Math.sqrt(Math.max(0.0, 1.0 - y * y))
+            var a = 2.399963 * i
             _orbPushSphere(pos, nrm, col, uv, idx,
-                           memoryRingRadius * Math.cos(a), 0, memoryRingRadius * Math.sin(a),
-                           memoryBeadRadius, 3)
-        }
-        n = Math.min(toolsCount, 8)
-        for (i = 0; i < n; i++) {
-            a = toolPhase + i * 2 * Math.PI / Math.max(toolsCount, 1)
-            _orbPushSphere(pos, nrm, col, uv, idx,
-                           toolsRingRadius * Math.cos(a), 0, toolsRingRadius * Math.sin(a),
-                           toolsBeadRadius, 4)
+                           rr * Math.cos(a) * moteR, y * moteR, rr * Math.sin(a) * moteR,
+                           moteRad, 3)
         }
         orbOrnamentPositions = pos
         orbOrnamentNormals = nrm
@@ -1531,9 +1548,13 @@ Item {
         var src = orb.tools || []
         for (var ti = 0; ti < src.length; ti++) {
             if (typeof src[ti] === "string")
-                tools.push({ id: src[ti] })
+                tools.push({ id: src[ti], elapsed: 0, timeout: 20 })
             else if (src[ti])
-                tools.push({ id: String(src[ti].id || src[ti].name || ("tool-" + ti)) })
+                tools.push({
+                    id: String(src[ti].id || src[ti].name || ("tool-" + ti)),
+                    elapsed: finiteNum(src[ti].elapsed, 0),
+                    timeout: finiteNum(src[ti].timeout, 20)
+                })
         }
         orbTools = tools
         var results = []
@@ -1565,38 +1586,324 @@ Item {
         liveByKey["__sources"] = entries
     }
 
+
+    function _gateV(i) {
+        var g = (root.gateList || [])[i]
+        if (!g) return Qt.vector4d(0, 0, 0, 0)
+        return Qt.vector4d(finiteNum(g.x, 0), finiteNum(g.y, 0.5), finiteNum(g.z, 0), finiteNum(g.r, 1.7))
+    }
+    function _gateC(i) {
+        var g = (root.gateList || [])[i]
+        if (!g) return Qt.vector4d(0, 0, 0, 0)
+        var c = Qt.color(g.color || "#a78bfa")
+        return Qt.vector4d(Math.pow(c.r, 2.2), Math.pow(c.g, 2.2), Math.pow(c.b, 2.2), finiteNum(g.halo, 0.015))
+    }
+
     function fillBeadEntries() {
         ensureLists()
         releaseList("__memBeads", memoryBeadList)
         releaseList("__toolBeads", toolBeadList)
         var mem = [], tools = []
-        var memR = root.memoryRingRadius, toolR = root.toolsRingRadius
-        var i
-        for (i = 0; i < memoryCount; i++) {
-            var a = root.memPhase + i * 2 * Math.PI / Math.max(memoryCount, 1)
-            var e = acquireEntry()
-            e.position = Qt.vector3d(memR * Math.cos(a), 0, memR * Math.sin(a))
-            var s = root.memoryBeadRadius
-            e.scale = Qt.vector3d(s, s, s)
-            e.color = "#d2b9f8"
-            e.customData = Qt.vector4d(1, 0, 0, 0)
-            mem.push(e)
+        var i, k, SPARK_R = 1.352
+        var src = root.orbTools || []
+        function sparkPos(i, deg) {
+            var ax = Qt.vector3d(0.8 * Math.sin(2.399963 * i), 1.0, 0.8 * Math.cos(2.399963 * i))
+            var al = Math.sqrt(ax.x * ax.x + ax.y * ax.y + ax.z * ax.z) || 1
+            ax = Qt.vector3d(ax.x / al, ax.y / al, ax.z / al)
+            var tmp = Math.abs(ax.y) < 0.9 ? Qt.vector3d(1, 0, 0) : Qt.vector3d(0, 0, 1)
+            var b1 = Qt.vector3d(ax.y * tmp.z - ax.z * tmp.y, ax.z * tmp.x - ax.x * tmp.z, ax.x * tmp.y - ax.y * tmp.x)
+            var l1 = Math.sqrt(b1.x * b1.x + b1.y * b1.y + b1.z * b1.z) || 1
+            b1 = Qt.vector3d(b1.x / l1, b1.y / l1, b1.z / l1)
+            var b2 = Qt.vector3d(ax.y * b1.z - ax.z * b1.y, ax.z * b1.x - ax.x * b1.z, ax.x * b1.y - ax.y * b1.x)
+            var ang = deg * Math.PI / 180 + 2.1 * i
+            return Qt.vector3d(b1.x * Math.cos(ang) * SPARK_R + b2.x * Math.sin(ang) * SPARK_R,
+                               b1.y * Math.cos(ang) * SPARK_R + b2.y * Math.sin(ang) * SPARK_R,
+                               b1.z * Math.cos(ang) * SPARK_R + b2.z * Math.sin(ang) * SPARK_R)
         }
-        for (i = 0; i < Math.min(toolsCount, 8); i++) {
-            var b = root.toolPhase + i * 2 * Math.PI / Math.max(toolsCount, 1)
+        function addSpark(pos, sc, gain) {
             var f = acquireEntry()
-            f.position = Qt.vector3d(toolR * Math.cos(b), 0, toolR * Math.sin(b))
-            var ts = root.toolsBeadRadius
-            f.scale = Qt.vector3d(ts, ts, ts)
-            f.color = "#ffffff"
+            f.position = Qt.vector3d(root.orbCentre.x + pos.x, root.orbCentre.y + pos.y, root.orbCentre.z + pos.z)
+            f.scale = Qt.vector3d(sc, sc, sc)
+            f.color = Qt.rgba(1.0 * gain / 0.75, 0.851 * gain / 0.75, 0.627 * gain / 0.75, 1)
             f.customData = Qt.vector4d(1, 0, 0, 0)
             tools.push(f)
+        }
+        for (i = 0; i < Math.min(toolsCount, 8); i++) {
+            var to = src[i] || ({})
+            var elapsed = finiteNum(to.elapsed, 0), timeout = Math.max(finiteNum(to.timeout, 20), 0.01)
+            var g0 = 0.75 * (1.0 + 0.5 * elapsed / timeout)
+            var base = root.toolsSpin
+            addSpark(sparkPos(i, base), 0.10, g0)
+            addSpark(sparkPos(i, base - 9), 0.075, 0.55)
+            addSpark(sparkPos(i, base - 18), 0.05, 0.28)
         }
         memoryBeadList.instances = mem
         toolBeadList.instances = tools
         liveByKey["__memBeads"] = mem
         liveByKey["__toolBeads"] = tools
         root.updateBeadScales()
+    }
+
+    function _hexPts(R) {
+        var out = []
+        for (var k = 0; k < 6; k++) {
+            var a = Math.PI / 6 + k * Math.PI / 3
+            out.push([0.0, R * Math.sin(a), R * Math.cos(a)])
+        }
+        return out
+    }
+
+    function _ensureGateMeshes() {
+        if (gateFramePositions && gateFramePositions.length)
+            return
+        var Ro = 1.7 * 1.28, Ri = 1.7, dep = 0.55
+        var Ho = _hexPts(Ro), Hi = _hexPts(Ri)
+        var V = [], F = []
+        var side, i, s, k
+        for (s = 0; s < 2; s++) {
+            side = s === 0 ? -dep / 2 : dep / 2
+            for (i = 0; i < 6; i++) V.push(Qt.vector3d(side, Ho[i][1], Ho[i][2]))
+            for (i = 0; i < 6; i++) V.push(Qt.vector3d(side, Hi[i][1], Hi[i][2]))
+        }
+        function quad(a, b, c, d) { F.push(a, b, c, a, c, d) }
+        for (k = 0; k < 6; k++) {
+            var k2 = (k + 1) % 6
+            for (var base = 0; base <= 12; base += 12)
+                quad(base + k, base + k2, base + 6 + k2, base + 6 + k)
+            quad(k, k2, 12 + k2, 12 + k)
+            quad(6 + k, 18 + k, 18 + k2, 6 + k2)
+        }
+        gateFramePositions = V; gateFrameIndexes = F
+        var Vb = [], Fb = []
+        for (k = 0; k < 6; k++) {
+            var a = Hi[k], b = Hi[(k + 1) % 6]
+            var pts = [[a[1], a[2]], [b[1], b[2]], [0, 0]]
+            var off = Vb.length
+            var x0 = 0.04 * (k % 2)
+            for (var z = 0; z < 2; z++) {
+                for (i = 0; i < 3; i++)
+                    Vb.push(Qt.vector3d(x0 + z * 0.08, pts[i][0], pts[i][1]))
+            }
+            Fb.push(off, off+1, off+2, off+3, off+5, off+4)
+            Fb.push(off, off+3, off+4, off, off+4, off+1)
+            Fb.push(off+1, off+4, off+5, off+1, off+5, off+2)
+            Fb.push(off+2, off+5, off+3, off+2, off+3, off)
+        }
+        gateBladePositions = Vb; gateBladeIndexes = Fb
+        var Vp = [Qt.vector3d(0, 0, 0)], Fp = [], segs = 24
+        for (i = 0; i < segs; i++) {
+            var ang = 2 * Math.PI * i / segs
+            Vp.push(Qt.vector3d(0, Ri * 0.94 * Math.sin(ang), Ri * 0.94 * Math.cos(ang)))
+            Fp.push(0, 1 + i, 1 + ((i + 1) % segs))
+        }
+        gatePortalPositions = Vp; gatePortalIndexes = Fp
+        var Vl = [], Fl = []
+        var yy = 0.18, zz = Ri, xx0 = dep / 2 + 0.02, xx1 = dep / 2 + 0.16
+        var corners = [Qt.vector3d(xx0,-yy,-zz),Qt.vector3d(xx0,yy,-zz),Qt.vector3d(xx0,yy,zz),Qt.vector3d(xx0,-yy,zz),
+                       Qt.vector3d(xx1,-yy,-zz),Qt.vector3d(xx1,yy,-zz),Qt.vector3d(xx1,yy,zz),Qt.vector3d(xx1,-yy,zz)]
+        for (i = 0; i < 8; i++) Vl.push(corners[i])
+        var faces = [[0,1,2,3],[4,7,6,5],[0,4,5,1],[1,5,6,2],[2,6,7,3],[3,7,4,0]]
+        for (i = 0; i < faces.length; i++) {
+            var q = faces[i]
+            Fl.push(q[0], q[1], q[2], q[0], q[2], q[3])
+        }
+        gateLockPositions = Vl; gateLockIndexes = Fl
+    }
+
+    function fillGateInstances() {
+        _ensureGateMeshes()
+        ensureLists()
+        releaseList("__gateFrames", gateFrameInstanceList)
+        releaseList("__gateBlades", gateBladeInstanceList)
+        releaseList("__gatePortals", gatePortalInstanceList)
+        releaseList("__gateLocks", gateLockInstanceList)
+        var frames = [], blades = [], portals = [], locks = []
+        var gates = root.gateList || []
+        for (var i = 0; i < gates.length; i++) {
+            var g = gates[i]
+            var th = finiteNum(g.theta, 0)
+            var deg = th * 180 / Math.PI
+            var pos = Qt.vector3d(finiteNum(g.x, 0), finiteNum(g.y, 0.5), finiteNum(g.z, 0))
+            var col = g.edgeColor || g.color || "#a78bfa"
+            var op = Math.max(0, Math.min(1, finiteNum(g.open, 1)))
+            var e = acquireEntry()
+            e.position = pos
+            e.eulerRotation = Qt.vector3d(0, deg, 0)
+            e.scale = Qt.vector3d(1, 1, 1)
+            e.color = col
+            e.customData = Qt.vector4d(op, g.blocked ? 1 : 0, finiteNum(g.edgeGain, 0.45), 0)
+            frames.push(e)
+            if (op < 0.98) {
+                var b = acquireEntry()
+                b.position = pos
+                b.eulerRotation = Qt.vector3d(0, deg, 0)
+                // shrink blades toward open: scale XY toward 1-op
+                var sc = Math.max(0.08, 1.0 - op)
+                b.scale = Qt.vector3d(1, sc, sc)
+                b.color = col
+                b.customData = Qt.vector4d(op, 0, 0, 0)
+                blades.push(b)
+            }
+            if (op > 0.05 && finiteNum(g.portal, 0) > 0.001 && !g.blocked) {
+                var p = acquireEntry()
+                p.position = pos
+                p.eulerRotation = Qt.vector3d(0, deg, 0)
+                p.scale = Qt.vector3d(1, 1, 1)
+                p.color = g.color || col
+                p.customData = Qt.vector4d(op, finiteNum(g.portal, 0.05), finiteNum(g.waveK, 18), finiteNum(g.wavePh, 0))
+                portals.push(p)
+            }
+            if (g.blocked || g.locked) {
+                for (var sgn = -1; sgn <= 1; sgn += 2) {
+                    var l = acquireEntry()
+                    l.position = pos
+                    l.eulerRotation = Qt.vector3d(0, deg, sgn * 45)
+                    l.scale = Qt.vector3d(1, 1, 1)
+                    l.color = "#cbd0db"
+                    l.customData = Qt.vector4d(0, 1, 0, 0)
+                    locks.push(l)
+                }
+            }
+        }
+        gateFrameInstanceList.instances = frames
+        gateBladeInstanceList.instances = blades
+        gatePortalInstanceList.instances = portals
+        gateLockInstanceList.instances = locks
+        liveByKey["__gateFrames"] = frames
+        liveByKey["__gateBlades"] = blades
+        liveByKey["__gatePortals"] = portals
+        liveByKey["__gateLocks"] = locks
+        // Push gate uniforms onto the barrier material via root properties consumed below.
+        root._gateUniformTick = (root._gateUniformTick || 0) + 1
+    }
+
+    function _tubeSeg(pos, idx, a, b, radius, sides) {
+        var dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z
+        var len = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1
+        var fx = dx / len, fy = dy / len, fz = dz / len
+        var upx = 0, upy = 1, upz = 0
+        if (Math.abs(fy) > 0.9) { upx = 1; upy = 0 }
+        var pxx = upy * fz - upz * fy, pxy = upz * fx - upx * fz, pxz = upx * fy - upy * fx
+        var pl = Math.sqrt(pxx * pxx + pxy * pxy + pxz * pxz) || 1
+        pxx /= pl; pxy /= pl; pxz /= pl
+        var qx = fy * pxz - fz * pxy, qy = fz * pxx - fx * pxz, qz = fx * pxy - fy * pxx
+        var base = pos.length, s, t, ang
+        for (t = 0; t <= 1; t++) {
+            var px = t === 0 ? a.x : b.x, py = t === 0 ? a.y : b.y, pz = t === 0 ? a.z : b.z
+            for (s = 0; s < sides; s++) {
+                ang = 2 * Math.PI * s / sides
+                var cx = Math.cos(ang), sy = Math.sin(ang)
+                pos.push(Qt.vector3d(
+                    px + (pxx * cx + qx * sy) * radius,
+                    py + (pxy * cx + qy * sy) * radius,
+                    pz + (pxz * cx + qz * sy) * radius))
+            }
+        }
+        for (s = 0; s < sides; s++) {
+            var s2 = (s + 1) % sides
+            idx.push(base + s, base + sides + s, base + sides + s2)
+            idx.push(base + s, base + sides + s2, base + s2)
+        }
+    }
+
+    function rebuildLinkMesh() {
+        var pos = [], idx = []
+        var links = root.harvestLinks || []
+        for (var i = 0; i < links.length; i++) {
+            var L = links[i]
+            var r = finiteNum(L.radius, 0.02)
+            var a = Qt.vector3d(finiteNum(L.sx, 0), finiteNum(L.sy, 0), finiteNum(L.sz, 0))
+            var c = Qt.vector3d(finiteNum(L.cx, 0), finiteNum(L.cy, 0), finiteNum(L.cz, 0))
+            var b = Qt.vector3d(finiteNum(L.ex, 0), finiteNum(L.ey, 0), finiteNum(L.ez, 0))
+            // two segments of the quadratic arc, plus a pulse bead
+            var p1 = Qt.vector3d(a.x * 0.25 + c.x * 0.5 + b.x * 0.25,
+                                 a.y * 0.25 + c.y * 0.5 + b.y * 0.25,
+                                 a.z * 0.25 + c.z * 0.5 + b.z * 0.25)
+            _tubeSeg(pos, idx, a, p1, r, 5)
+            _tubeSeg(pos, idx, p1, b, r, 5)
+            var u = (root.sceneTime * 0.35 + i * 0.17) % 1
+            if (L.inward) u = 1 - u
+            var bx = (1-u)*(1-u)*a.x + 2*(1-u)*u*c.x + u*u*b.x
+            var by = (1-u)*(1-u)*a.y + 2*(1-u)*u*c.y + u*u*b.y
+            var bz = (1-u)*(1-u)*a.z + 2*(1-u)*u*c.z + u*u*b.z
+            var bead = Qt.vector3d(bx, by, bz)
+            var off = Qt.vector3d(bx + 0.04, by, bz)
+            _tubeSeg(pos, idx, bead, off, r * 1.8, 6)
+        }
+        linkPositions = pos
+        linkIndexes = idx
+    }
+
+    function fillEyeGlints() {
+        ensureLists()
+        releaseList("__memBeads", memoryBeadList)
+        var out = []
+        if (root.coreMode) {
+            memoryBeadList.instances = out
+            liveByKey["__memBeads"] = out
+            return
+        }
+        var cam = cameraWorldPos()
+        var recs = instanceRecords || ({})
+        var keys = Object.keys(recs)
+        var pxA = 0.6306 / Math.max(1, height)
+        for (var i = 0; i < keys.length; i++) {
+            var rec = recs[keys[i]]
+            if (!rec || String(rec.modelKey).indexOf(":head") < 0)
+                continue
+            var lod = 2
+            if (String(rec.modelKey).indexOf(":0:") >= 0) lod = 0
+            else if (String(rec.modelKey).indexOf(":1:") >= 0) lod = 1
+            if (lod === 0)
+                continue
+            // Use the clamped head position (finiteCoord already applied in
+            // fillUnitEntry). unitPositionOf can still hold the raw sim
+            // coordinate, which would park a glint 1000 m off-field.
+            var pos = { x: finiteCoord(rec.x), y: finiteCoord(rec.y), z: finiteCoord(rec.z) }
+            var sc = finiteNum(rec.scale, 1.0)
+            var q = qFromYaw(rec.heading)
+            // head-local lens (1.02, 0.03, 0) * scale, rotate by yaw quaternion
+            var lx = 1.02 * sc, ly = 0.03 * sc, lz = 0
+            var qx = q.x, qy = q.y, qz = q.z, qw = q.w
+            var tx = 2 * (qy * lz - qz * ly) + 2 * qw * (qy * /*unused*/0)
+            // rotate v by q: v + 2*cross(qv, cross(qv,v)+qw*v)
+            var ix = qy * lz - qz * ly, iy = qz * lx - qx * lz, iz = qx * ly - qy * lx
+            var rx = lx + 2 * (iy * qz - iz * qy + qw * ix)
+            var ry = ly + 2 * (iz * qx - ix * qz + qw * iy)
+            var rz = lz + 2 * (ix * qy - iy * qx + qw * iz)
+            var wx = pos.x + rx, wy = pos.y + ry, wz = pos.z + rz
+            var cx = cam.x - wx, cy = cam.y - wy, cz = cam.z - wz
+            var cl = Math.sqrt(cx * cx + cy * cy + cz * cz) || 1
+            cx /= cl; cy /= cl; cz /= cl
+            wx += cx * 0.8 * sc; wy += cy * 0.8 * sc; wz += cz * 0.8 * sc
+            var depth = Math.max(cl, 1.0)
+            var rad = Math.max(0.19 * sc, root.eyeMinPx * pxA * depth)
+            var fwdX = Math.cos(rec.heading * Math.PI / 180), fwdZ = Math.sin(rec.heading * Math.PI / 180)
+            // rec.heading may already be radians or degrees — unitTex uses qFromYaw
+            var facing = fwdX * cx + fwdZ * cz
+            if (typeof rec.heading === "number" && Math.abs(rec.heading) <= 2 * Math.PI + 0.01) {
+                fwdX = Math.cos(rec.heading); fwdZ = Math.sin(rec.heading)
+                facing = fwdX * cx + fwdZ * cz
+            }
+            var lodK = lod === 2 ? 1.0 : 0.5
+            var threat = String(rec.eye || "") === "#ff2a3c" || String(rec.eye || "").toLowerCase() === "#ff2a3c"
+            var peak = (threat ? 2.6 : 0.50) * lodK
+            var sm = Math.max(0, Math.min(1, (facing + 0.2) / 0.8))
+            sm = sm * sm * (3 - 2 * sm)
+            peak *= (0.35 + 0.65 * sm)
+            var ec = Qt.color(rec.eye || rec.color || "#ffffff")
+            var er = Math.pow(ec.r, 2.2), eg = Math.pow(ec.g, 2.2), eb = Math.pow(ec.b, 2.2)
+            var mx = Math.max(er, Math.max(eg, eb, 1e-6))
+            er /= mx; eg /= mx; eb /= mx
+            var e = acquireEntry()
+            e.position = Qt.vector3d(wx, wy, wz)
+            e.scale = Qt.vector3d(rad, rad, rad)
+            e.color = Qt.rgba(Math.min(1, er * peak), Math.min(1, eg * peak), Math.min(1, eb * peak), 1)
+            e.customData = Qt.vector4d(1, 0, 0, 0)
+            out.push(e)
+        }
+        memoryBeadList.instances = out
+        liveByKey["__memBeads"] = out
     }
 
     function eyeData(color, eyeMul) {
@@ -1824,7 +2131,7 @@ Item {
                 kappa: finiteNum(extra.kappa, 0),
                 phase: finiteNum(extra.phase, 0),
                 lenMul: finiteNum(extra.lenMul, 1.0),
-                wIdle: finiteNum(extra.wIdle, 0),
+                wIdle: Math.min(finiteNum(extra.wIdle, 0), (String(rec.modelKey).indexOf(":2:") >= 0) ? 0.15 : 0.30),
                 wReach: finiteNum(extra.wReach, 0),
                 wHold: finiteNum(extra.wHold, 0),
                 wCoil: wCoil,
@@ -2258,9 +2565,8 @@ Item {
         var closeUp = shell.rs >= 90 && root.coreMode
         var key
         if (!closeUp) {
-            // Overview chips pin to the untilted ring extremes, so spin
-            // must not retrigger layout (or the 360 mapFrom3DScene calls).
-            key = "o|" + toolsCount + "|" + memoryCount + "|" + Math.round(shell.rs) + "|" + Math.round(cameraDistance * 10) + "|" + Math.round(width) + "x" + Math.round(height)
+            // Overview labels sit on the silhouette equator; hover only.
+            key = "o|" + toolsCount + "|" + memoryCount + "|" + Math.round(shell.rs) + "|" + Math.round(cameraDistance * 10) + "|" + Math.round(width) + "x" + Math.round(height) + "|" + (root.orbHovered ? "h" : "n")
         } else {
             key = "c|" + toolsCount + "|" + memoryCount + "|" + (orbResults || []).length + "|" + Math.round(shell.rs) + "|" + Math.round(cameraDistance * 10) + "|" + Math.round(memorySpin) + "|" + Math.round(toolsSpin)
         }
@@ -2315,10 +2621,10 @@ Item {
                 rects.push(r)
                 screen.push({ id: id, text: text, color: "#e8dcfb", sx: Math.round((r.x0 + r.x1) / 2), sy: Math.round(midY), visible: true })
             }
-            var ta = leftmost(tp)
-            plate("tools", "Tools · " + toolsCount + " running", ta.x, ta.y, -70, -34)
-            var ma = lowest(mp)
-            plate("memory", "Memory · " + memoryCount + " from last chat", ma.x, ma.y, -110, 46)
+            if (root.orbHovered) {
+                plate("memory", "Memory · " + memoryCount + " from last chat", shell.cx - shell.rs, shell.cy, -18, 0)
+                plate("tools", "Tools · " + toolsCount + " running", shell.cx + shell.rs, shell.cy, 18 + 200, 0)
+            }
         } else {
             var tn = Math.max(toolsCount, 1)
             for (i = 0; i < toolsCount; i++) {
@@ -2328,7 +2634,7 @@ Item {
                 if (bm)
                     beadGlows.push({ x: bm.x, y: bm.y, r: 34 })
             }
-            var axp = rightmost(tp)
+            var axp = { x: shell.cx + shell.rs, y: shell.cy }
             var toolsTitle = measureText("Tools", root.hudSansFamily, 25)
             var toolsStatus = measureText(toolsCount + " running", root.hudSansFamily, 18)
             var tW = Math.max(toolsTitle.w, toolsStatus.w)
@@ -2348,7 +2654,7 @@ Item {
             rects.push(tb)
             screen.push({ id: "tools", text: "Tools " + toolsCount + " running", color: "#ffffff", sx: Math.round((tb.x0 + tb.x1) / 2), sy: Math.round((tb.y0 + tb.y1) / 2), visible: true })
 
-            var bxp = lowest(mp)
+            var bxp = { x: shell.cx - shell.rs, y: shell.cy }
             var memTitle = measureText("Memory", root.hudSansFamily, 25)
             var memStatus = measureText(memoryCount + " from last chat", root.hudSansFamily, 18)
             var mW = Math.max(memTitle.w, memStatus.w)
@@ -2715,6 +3021,11 @@ Item {
             root.stepTentacleWeights(dt)
             root.projectOrbLabels()
             root.refreshUnitTex()
+            if (root.toolsCount > 0)
+                root.fillBeadEntries()
+            root.fillEyeGlints()
+            if ((root.harvestLinks || []).length)
+                root.rebuildLinkMesh()
         }
     }
 
@@ -2793,6 +3104,24 @@ Item {
                 }
             }
         }
+        HoverHandler {
+            onPointChanged: function () {
+                var pt = point.position
+                var hit = view.pick(pt.x, pt.y)
+                var obj = hit ? hit.objectHit : null
+                var hov = !!(obj && root.orbPickHitsCore && root.orbPickHitsCore(obj))
+                if (hov !== root.orbHovered) {
+                    root.orbHovered = hov
+                    root.projectOrbLabels()
+                }
+            }
+            onHoveredChanged: function () {
+                if (!hovered && root.orbHovered) {
+                    root.orbHovered = false
+                    root.projectOrbLabels()
+                }
+            }
+        }
         environment: SceneEnvironment {
             objectName: "overseerEnvironment"
             backgroundMode: SceneEnvironment.Color
@@ -2825,6 +3154,9 @@ Item {
             objectName: "overseerBloom"
             levels: root.glowLevels
             uThreshold: root.glowThreshold
+            uExposure: 1.0 + (0.85 - 1.0) * root.coreToneU
+            uIntensity: 1.4 + (1.0 - 1.4) * root.coreToneU
+            uKnee: 0.86 + (0.65 - 0.86) * root.coreToneU
         }
 
         PerspectiveCamera {
@@ -3197,11 +3529,166 @@ Item {
             position: Qt.vector3d(finiteNum(barrierSpec.cx, 0), finiteNum(barrierSpec.cy, 0.5), finiteNum(barrierSpec.cz, 0))
             scale: Qt.vector3d(finiteNum(barrierSpec.a, 32), finiteNum(barrierSpec.h, 11), finiteNum(barrierSpec.a, 32))
             source: "#Sphere"
-            materials: PrincipledMaterial {
-                baseColor: Qt.rgba(0.62, 0.78, 1.0, 0.14)
-                lighting: PrincipledMaterial.NoLighting
-                opacity: 0.16
+            materials: CustomMaterial {
+                shadingMode: CustomMaterial.Unshaded
+                vertexShader: "shaders/barrier.vert"
+                fragmentShader: "shaders/barrier.frag"
+                sourceBlend: CustomMaterial.One
+                destinationBlend: CustomMaterial.One
+                depthDrawMode: Material.NeverDepthDraw
                 cullMode: Material.NoCulling
+                property vector3d barrierColor: Qt.vector3d(0.486, 0.424, 0.949)
+                property real rimPow: 4.0
+                property real rimGain: 0.055
+                property real cell: 2.2
+                property real lineW: 0.035
+                property real cellGain: 0.022
+                property real body: 0.0
+                property real backGain: 0.20
+                property real emp: root.egressMuted ? 1.0 : 0.0
+                property real gateCount: Math.min(8, (root.gateList || []).length)
+                property vector4d gate0: root._gateV(0)
+                property vector4d gate1: root._gateV(1)
+                property vector4d gate2: root._gateV(2)
+                property vector4d gate3: root._gateV(3)
+                property vector4d gate4: root._gateV(4)
+                property vector4d gate5: root._gateV(5)
+                property vector4d gate6: root._gateV(6)
+                property vector4d gate7: root._gateV(7)
+                property vector4d gateCol0: root._gateC(0)
+                property vector4d gateCol1: root._gateC(1)
+                property vector4d gateCol2: root._gateC(2)
+                property vector4d gateCol3: root._gateC(3)
+                property vector4d gateCol4: root._gateC(4)
+                property vector4d gateCol5: root._gateC(5)
+                property vector4d gateCol6: root._gateC(6)
+                property vector4d gateCol7: root._gateC(7)
+            }
+        }
+
+        Model {
+            objectName: "gateFrames"
+            visible: (root.gateList || []).length > 0
+            instancing: gateFrameInstanceList
+            geometry: ProceduralMesh {
+                positions: root.gateFramePositions
+                indexes: root.gateFrameIndexes
+            }
+            materials: PrincipledMaterial {
+                baseColor: "#5a5d63"
+                metalness: 0.55
+                roughness: 0.38
+                lighting: PrincipledMaterial.NoLighting
+            }
+        }
+        Model {
+            objectName: "gateBlades"
+            visible: gateBladeInstanceList.instances.length > 0
+            instancing: gateBladeInstanceList
+            geometry: ProceduralMesh {
+                positions: root.gateBladePositions
+                indexes: root.gateBladeIndexes
+            }
+            materials: PrincipledMaterial {
+                baseColor: "#6a6e76"
+                metalness: 0.55
+                roughness: 0.40
+                lighting: PrincipledMaterial.NoLighting
+            }
+        }
+        Model {
+            objectName: "gatePortals"
+            visible: gatePortalInstanceList.instances.length > 0
+            instancing: gatePortalInstanceList
+            geometry: ProceduralMesh {
+                positions: root.gatePortalPositions
+                indexes: root.gatePortalIndexes
+            }
+            materials: CustomMaterial {
+                shadingMode: CustomMaterial.Unshaded
+                vertexShader: "shaders/gate_emit.vert"
+                fragmentShader: "shaders/gate_emit.frag"
+                sourceBlend: CustomMaterial.One
+                destinationBlend: CustomMaterial.One
+                depthDrawMode: Material.NeverDepthDraw
+                property real gain: 0.35
+                property real waveK: 18.0
+                property real wavePh: 0.0
+            }
+        }
+        Model {
+            objectName: "gateLocks"
+            visible: gateLockInstanceList.instances.length > 0
+            instancing: gateLockInstanceList
+            geometry: ProceduralMesh {
+                positions: root.gateLockPositions
+                indexes: root.gateLockIndexes
+            }
+            materials: CustomMaterial {
+                shadingMode: CustomMaterial.Unshaded
+                vertexShader: "shaders/gate_emit.vert"
+                fragmentShader: "shaders/gate_emit.frag"
+                sourceBlend: CustomMaterial.One
+                destinationBlend: CustomMaterial.One
+                depthDrawMode: Material.NeverDepthDraw
+                property real gain: 0.35
+                property real waveK: 0.0
+                property real wavePh: 0.0
+            }
+        }
+        Model {
+            objectName: "harvestLinks"
+            visible: (root.harvestLinks || []).length > 0
+            geometry: ProceduralMesh {
+                positions: root.linkPositions
+                indexes: root.linkIndexes
+            }
+            materials: CustomMaterial {
+                shadingMode: CustomMaterial.Unshaded
+                vertexShader: "shaders/link_emit.vert"
+                fragmentShader: "shaders/link_emit.frag"
+                sourceBlend: CustomMaterial.One
+                destinationBlend: CustomMaterial.One
+                depthDrawMode: Material.NeverDepthDraw
+                property vector3d linkColor: Qt.vector3d(0.769, 0.710, 0.992)
+                property real gain: 0.045
+            }
+        }
+        Model {
+            objectName: "toolSparksWorld"
+            visible: root.toolsCount > 0
+            instancing: toolBeadInstanceList
+            source: "meshes/orb_bead_mesh.mesh"
+            materials: CustomMaterial {
+                shadingMode: CustomMaterial.Unshaded
+                vertexShader: "shaders/orb_bead.vert"
+                fragmentShader: "shaders/orb_emission.frag"
+                sourceBlend: CustomMaterial.One
+                destinationBlend: CustomMaterial.One
+                depthDrawMode: Material.NeverDepthDraw
+                property vector3d spinAxis: Qt.vector3d(0, 1, 0)
+                property real spinAngle: 0
+                property real spinShear: 0
+                property vector3d tint: Qt.vector3d(1, 1, 1)
+                property real gain: 0.75
+                property vector3d litArc: Qt.vector3d(0, 0, 2)
+                property real dim: 1
+                property real backGain: root.ringBackGain
+                property vector3d orbCentre: root.orbCentre
+            }
+        }
+        Model {
+            objectName: "eyeGlints"
+            visible: !root.coreMode && memoryBeadInstanceList.instances.length > 0
+            instancing: memoryBeadInstanceList
+            source: "meshes/orb_bead_mesh.mesh"
+            materials: CustomMaterial {
+                shadingMode: CustomMaterial.Unshaded
+                vertexShader: "shaders/eye_glint.vert"
+                fragmentShader: "shaders/eye_glint.frag"
+                sourceBlend: CustomMaterial.One
+                destinationBlend: CustomMaterial.One
+                depthDrawMode: Material.NeverDepthDraw
             }
         }
 
@@ -3225,7 +3712,7 @@ Item {
                         shadingMode: CustomMaterial.Unshaded
                         vertexShader: "shaders/sentinel_head.vert"
                         fragmentShader: "shaders/sentinel_head.frag"
-                        property real eyeGain: modelData.lod === 0 ? 1.35 : (modelData.lod === 1 ? 1.40 : 2.20)
+                        property real eyeGain: modelData.lod === 0 ? 1.35 : 0.90
                         property real rimGain: modelData.lod === 0 ? 0.020 : (modelData.lod === 1 ? 0.030 : 0.060)
                         property real seamGain: modelData.lod === 0 ? 0.45 : (modelData.lod === 1 ? 0.50 : 1.00)
                         property real hullMetal: 0.55
@@ -3262,7 +3749,7 @@ Item {
                         shadingMode: CustomMaterial.Unshaded
                         vertexShader: "shaders/sentinel_head.vert"
                         fragmentShader: "shaders/sentinel_head.frag"
-                        property real eyeGain: modelData.lod === 0 ? 1.35 : (modelData.lod === 1 ? 1.40 : 2.20)
+                        property real eyeGain: modelData.lod === 0 ? 1.35 : 0.90
                         property real rimGain: modelData.lod === 0 ? 0.020 : (modelData.lod === 1 ? 0.030 : 0.060)
                         property real seamGain: modelData.lod === 0 ? 0.45 : (modelData.lod === 1 ? 0.50 : 1.00)
                         property real hullMetal: 0.55

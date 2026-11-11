@@ -20,7 +20,7 @@ vec3 shoulder(vec3 v) {
 // additive glow does, then the shoulder.
 void MAIN() {
     vec4 c = texture(INPUT, INPUT_UV);
-    vec3 color = filmic(c.rgb);
+    vec3 color = filmic(c.rgb * uExposure);
     if (uLevels > 0.5)
         color += texture(glowSum, INPUT_UV).rgb;
     FRAGCOLOR = vec4(shoulder(color), c.a);

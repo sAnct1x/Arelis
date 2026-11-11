@@ -1,4 +1,4 @@
-// Pass E head v2 (fix-c05bb78). UNSHADED with unitLight(): no Qt vertex-colour multiply, no full scene fog.
+// Pass E head v2 / v2.1: LOD1/LOD2 eyeGain 0.90 so the lens keeps caste hue under the bloom threshold. UNSHADED with unitLight(): no Qt vertex-colour multiply, no full scene fog.
 VARYING vec3 vTone;
 VARYING float vEm;
 VARYING float vPart;

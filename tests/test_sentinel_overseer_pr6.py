@@ -328,9 +328,36 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
         for child in inst.findChildren(QObject)
         if "ProceduralMesh" in child.metaObject().className()
     ]
-    # Lane guides and the perimeter, plus the combined orb ornaments
-    # and the starfield mesh (each is one ProceduralMesh draw).
-    assert len(meshes) == 4
+    # Lane guides and the perimeter, the combined orb ornaments, the
+    # starfield, plus Pass F gate frames / blades / portals / locks and
+    # the harvest-link mesh (each is one ProceduralMesh).
+    assert len(meshes) == 9
+    named = {
+        child.objectName()
+        for child in inst.findChildren(QObject)
+        if child.objectName() in (
+            "orbOrnaments",
+            "casteBandGuides",
+            "tripwirePerimeter",
+            "starLayers",
+            "gateFrames",
+            "gateBlades",
+            "gatePortals",
+            "gateLocks",
+            "harvestLinks",
+        )
+    }
+    assert named == {
+        "orbOrnaments",
+        "casteBandGuides",
+        "tripwirePerimeter",
+        "starLayers",
+        "gateFrames",
+        "gateBlades",
+        "gatePortals",
+        "gateLocks",
+        "harvestLinks",
+    }
     for ring in caste_rings:
         src = ring.property("source")
         src_s = src.toString() if src is not None and hasattr(src, "toString") else str(src or "")
@@ -448,8 +475,13 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     boom_pos = None
     boom_sc = None
     for pos, sc in _unit_instance_entries(inst):
+        sx, sy, sz = float(sc.x()), float(sc.y()), float(sc.z())
+        # Pass F eye glints reuse memoryBeadList; their radius is not the
+        # clamped unit scale. The unit entry is the one at scale 3.
+        if abs(sx - 3.0) > 1e-3:
+            continue
         boom_pos = (float(pos.x()), float(pos.y()), float(pos.z()))
-        boom_sc = (float(sc.x()), float(sc.y()), float(sc.z()))
+        boom_sc = (sx, sy, sz)
         break
     assert boom_pos is not None and abs(boom_pos[0]) < 1e-4
     assert abs(boom_pos[1] - 0.4) < 1e-4 and abs(boom_pos[2]) < 1e-4

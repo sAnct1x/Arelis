@@ -25,11 +25,11 @@ const float PI = 3.14159265;
 // CRUISE = dict(f=0.50, lam=0.75, A=0.055, spread=0.14, sag=0.04)
 const float CR_F = 0.50, CR_LAM = 0.75, CR_A = 0.055, CR_SPREAD = 0.14, CR_SAG = 0.04;
 // IDLE = dict(f=0.14, A=0.025, cone=0.80, s0=0.40, curl=1.30, breath=0.20, fb=0.11)
-const float ID_F = 0.14, ID_A = 0.025, ID_CONE = 0.80, ID_S0 = 0.40, ID_CURL = 1.30, ID_BR = 0.20, ID_FB = 0.11;
+const float ID_F = 0.14, ID_A = 0.025, ID_CONE = 0.35, ID_S0 = 0.40, ID_CURL = 1.30, ID_BR = 0.20, ID_FB = 0.11;
 const float BEAD_R = 0.16;
 // cruise v2 (fix-c05bb78/src/cruise_v2.py): per-strand seeds, curl along the length, tip whip
-const float V2_A = 0.070, V2_APOW = 1.3, V2_SIDE = 0.35, V2_WHIP = 0.45, V2_SPREAD = 0.20, V2_SAG = 0.05;
-const float V2_CURL = 0.10, V2_CURLJIT = 0.06, V2_CURLFROM = 0.22, V2_CURLBR = 0.35, V2_CURLF = 0.09;
+const float V2_A = 0.070, V2_APOW = 1.3, V2_SIDE = 0.35, V2_WHIP = 0.45, V2_SPREAD = 0.06, V2_SAG = 0.02;
+const float V2_CURL = 0.04, V2_CURLJIT = 0.024, V2_CURLFROM = 0.22, V2_CURLBR = 0.35, V2_CURLF = 0.09;
 float hash1(float x) { return fract(sin(x) * 43758.5453); }
 
 vec4 U(int unitRow, int t) { return texelFetch(unitTex, ivec2(t, unitRow), 0); }

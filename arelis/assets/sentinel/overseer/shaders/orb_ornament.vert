@@ -37,10 +37,10 @@ void MAIN() {
         tube = 0.011;
         gainMul = 0.42 * resultsFade;
     } else if (part > 2.5 && part < 3.5) {
-        tilt = memoryTiltEuler;
+        tilt = vec3(0.0);
         spin = memorySpin;
         tube = memoryBeadRadius;
-        gainMul = 1.6;
+        gainMul = 0.85;
     } else if (part > 3.5) {
         tilt = toolsTiltEuler;
         spin = toolsSpin;
