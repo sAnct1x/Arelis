@@ -2,7 +2,8 @@
 
 Numbers come from Iris pass 5: window (40, 44) 2110x1306 on a 2560x1392 plate,
 Arelis and the orbit tree at 20 percent while it is open, 650 ms in and 500 ms
-out, 200 ms when motion is reduced.
+out, 200 ms when motion is reduced. Chat is hidden and disabled for that same
+span, and restored when the window closes.
 """
 
 from __future__ import annotations
@@ -54,6 +55,80 @@ def fade_duration_ms(*, opening: bool, reduced: bool) -> int:
     if reduced:
         return REDUCED_MS
     return FADE_OPEN_MS if opening else FADE_CLOSE_MS
+
+
+
+def _chat_suspend_targets(owner: Any) -> list[Any]:
+    """Composer, transcript, and the Filament chat tile, if those widgets exist."""
+    widgets: list[Any] = []
+    conv = getattr(owner, "conversation", None)
+    if conv is not None:
+        widgets.append(conv)
+        chat = getattr(conv, "chat", None)
+        if chat is not None:
+            widgets.append(chat)
+            view = getattr(chat, "view", None)
+            if view is not None:
+                widgets.append(view)
+        composer = getattr(conv, "_composer", None)
+        if composer is not None:
+            widgets.append(composer)
+        for name in ("input", "send_btn"):
+            widget = getattr(conv, name, None)
+            if widget is not None:
+                widgets.append(widget)
+    tile = getattr(owner, "_filament_chat_tile", None)
+    if tile is not None:
+        widgets.append(tile)
+    seen: set[int] = set()
+    unique: list[Any] = []
+    for widget in widgets:
+        ident = id(widget)
+        if ident not in seen:
+            seen.add(ident)
+            unique.append(widget)
+    return unique
+
+
+def suspend_chat_for_overseer(owner: Any) -> None:
+    """Hide and disable the main-window chat, and park per-token painting."""
+    if owner is None or getattr(owner, "_overseer_chat_suspend", None) is not None:
+        return
+    conv = getattr(owner, "conversation", None)
+    chat = getattr(conv, "chat", None) if conv is not None else None
+    targets = _chat_suspend_targets(owner)
+    snapshot = [(w, w.isHidden(), w.isEnabled()) for w in targets]
+    parked = bool(getattr(chat, "_view_parked", False)) if chat is not None else False
+    owner._overseer_chat_suspend = {"widgets": snapshot, "view_parked": parked}
+    if chat is not None:
+        chat.set_view_parked(True)
+    for widget in targets:
+        clearer = getattr(widget, "clearFocus", None)
+        if callable(clearer):
+            clearer()
+        widget.setEnabled(False)
+        widget.hide()
+
+
+def restore_chat_after_overseer(owner: Any) -> None:
+    """Put the chat back exactly as it was before the Overseer opened."""
+    if owner is None:
+        return
+    snap = getattr(owner, "_overseer_chat_suspend", None)
+    if not snap:
+        return
+    owner._overseer_chat_suspend = None
+    conv = getattr(owner, "conversation", None)
+    chat = getattr(conv, "chat", None) if conv is not None else None
+    if chat is not None:
+        chat.set_view_parked(bool(snap.get("view_parked")))
+    from shiboken6 import isValid
+
+    for widget, hidden, enabled in snap.get("widgets") or []:
+        if widget is None or not isValid(widget):
+            continue
+        widget.setEnabled(enabled)
+        widget.setVisible(not hidden)
 
 
 class PresenceController:
