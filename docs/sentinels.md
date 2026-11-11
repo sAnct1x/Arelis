@@ -292,7 +292,8 @@ If Sentinel is not running she says so instead of guessing.
 - "Deploy three more wardens." She adds up to 50 units of a known caste at
   a time; the swarm's own unit limit still applies.
 - "Stand down the harvesters" or "retire unit SNT-WRD-002." She retires one
-  unit or a whole caste.
+  unit or a whole caste. "Stand down those 3 harvesters" retires exactly 3
+  and leaves the rest; she tells you how many she retired and how many remain.
 - "Have the wardens scan sockets." She gives a caste one task it really
   supports: harvesters fetch a page or search arXiv, Horizons or Wikipedia;
   wardens scan sockets, check a URL or intercept; tripwires watch a folder or
