@@ -905,7 +905,6 @@ class SentinelWindow(QWidget):
         mote = getattr(owner, "sentinel_mote", None)
         if mote is not None:
             mote.hide()
-        _set_owner_chat_suspended(owner, True)
 
     def _restore_presence(self, reason: str = "close") -> None:
         self._dispatches = []  # "from Dispatch" covers one open Overseer only
@@ -917,8 +916,6 @@ class SentinelWindow(QWidget):
         if mote is not None:
             mote.show()
             mote.reposition()
-        if owner is not None:
-            _set_owner_chat_suspended(owner, False)
 
     def showEvent(self, event) -> None:
         self.apply_theme()
@@ -963,13 +960,6 @@ class SentinelWindow(QWidget):
         self._place_hud(self.width())
         self.apply_hud_mask()
         super().resizeEvent(event)
-
-
-def _set_owner_chat_suspended(owner, on: bool) -> None:
-    """Chat is off while the Overseer is open (see set_chat_suspended)."""
-    fn = getattr(owner, "set_chat_suspended", None)
-    if callable(fn):
-        fn(on)
 
 
 def teardown_sentinel_window(window) -> None:

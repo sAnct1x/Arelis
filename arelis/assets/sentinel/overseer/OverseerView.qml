@@ -1899,7 +1899,7 @@ Item {
             var depth = Math.max(cl, 1.0)
             var rad = Math.max(0.19 * sc, root.eyeMinPx * pxA * depth)
             var fwdX = Math.cos(rec.heading * Math.PI / 180), fwdZ = Math.sin(rec.heading * Math.PI / 180)
-            // rec.heading may already be radians or degrees — unitTex uses qFromYaw
+            // rec.heading may already be radians or degrees; unitTex uses qFromYaw
             var facing = fwdX * cx + fwdZ * cz
             if (typeof rec.heading === "number" && Math.abs(rec.heading) <= 2 * Math.PI + 0.01) {
                 fwdX = Math.cos(rec.heading); fwdZ = Math.sin(rec.heading)

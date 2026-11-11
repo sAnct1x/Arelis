@@ -44,7 +44,7 @@ EYE_THREAT = "#ff2a3c"
 # authored in metres (pod length 2.0 m), so UNIT_MESH_SCALE is 1.
 # The pre-Pass-F BAND-SPEC OVERVIEW_SCALE × 1.31 chat-off multiplier
 # (warden 1.64, harvester 1.70) is not used: at 100 units it drew
-# bodies ~2.6–3.0× too large versus the DESIGN renders (caste × 0.64).
+# bodies ~2.6-3.0× too large versus the DESIGN renders (caste × 0.64).
 UNIT_MESH_SCALE = 1.0
 LOD0_PX = 180.0
 LOD1_PX = 60.0

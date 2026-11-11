@@ -28,8 +28,8 @@ class _Owner(WindowTurn, QWidget):
 
 
 def test_opening_the_overseer_turns_chat_off_and_closing_restores_it(qt_app, monkeypatch) -> None:
-    # The Sentinel window is its own top-level window over this one, so its
-    # open path used to fade her and leave composer, mic and turn running.
+    # #594 hides and disables chat; submit and the wake word follow the same
+    # _overseer_chat_suspend marker.
     monkeypatch.setattr(sentinel_control, "overseer_url", lambda: "")
     owner = _Owner()
     owner.resize(1280, 800)
@@ -38,28 +38,61 @@ def test_opening_the_overseer_turns_chat_off_and_closing_restores_it(qt_app, mon
     owner._filament_chat_tile = QWidget()
     owner._filament_chat_tile.show()
     owner._filament_chat_open = True
-    owner._turn_busy = True
-    cancelled: list[bool] = []
-    owner._cancel_turn = lambda *, schedule_next, reason="stop": cancelled.append(schedule_next)
     win = SentinelWindow(owner)
     owner.sentinel_window = win
     try:
         win.show()
         qt_app.processEvents()
+        assert owner._overseer_chat_suspend is not None
         assert owner.conversation.isEnabled() is False
         assert owner._filament_chat_tile.isVisible() is False
         assert owner.voice_controller.calls == ["stop_all"]
-        assert cancelled == [False]
         # Composer, Again and camera all submit through here: nothing starts.
         owner._on_submit("hello", "chat")
 
         win.close()
         qt_app.processEvents()
+        assert owner._overseer_chat_suspend is None
         assert owner.conversation.isEnabled() is True
-        assert owner._filament_chat_tile.isVisible() is True
         assert owner.voice_controller.calls == ["stop_all", "resume_wake"]
     finally:
         teardown_sentinel_window(owner)
         owner._filament_chat_tile.close()
+        owner.deleteLater()
+        qt_app.processEvents()
+
+
+def test_a_refresh_error_keeps_chat_off_while_the_overseer_stays_open(
+    qt_app, monkeypatch
+) -> None:
+    # _refresh used to call _restore_presence("error") which turned chat and
+    # the wake word back on while the error card was still on screen.
+    monkeypatch.setattr(sentinel_control, "overseer_url", lambda: "")
+    owner = _Owner()
+    owner.resize(1280, 800)
+    owner.conversation = QWidget(owner)
+    owner.voice_controller = _Voice()
+    win = SentinelWindow(owner)
+    owner.sentinel_window = win
+    try:
+        win.show()
+        qt_app.processEvents()
+        assert win.isVisible() is True
+        assert owner._overseer_chat_suspend is not None
+        assert owner.conversation.isEnabled() is False
+        assert owner.voice_controller.calls == ["stop_all"]
+
+        monkeypatch.setattr(sentinel_control, "overseer_url", lambda: "http://127.0.0.1:9/")
+        monkeypatch.setattr(win, "_ensure_view", lambda: None)
+        win.refresh()
+        qt_app.processEvents()
+
+        assert win.isVisible() is True
+        assert owner._overseer_chat_suspend is not None
+        assert owner.conversation.isEnabled() is False
+        assert owner.voice_controller.calls == ["stop_all"]
+        owner._on_submit("hello", "chat")
+    finally:
+        teardown_sentinel_window(owner)
         owner.deleteLater()
         qt_app.processEvents()
