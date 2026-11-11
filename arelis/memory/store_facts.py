@@ -27,27 +27,41 @@ def normalize_fact_text(text: str) -> str:
 
 
 def _facts_are_near_duplicates(left: str, right: str) -> bool:
-    """True when two live facts should share one row."""
+    """True when two facts should share one row.
+
+    Merge only on normalized equality (owner prefixes already stripped).
+    Forget still uses the looser matcher; this one must not, or claims
+    that differ in a number, a date, or a negation collapse into one row.
+    """
     norm_left = normalize_fact_text(left)
     norm_right = normalize_fact_text(right)
-    if norm_left and norm_left == norm_right:
-        return True
-    return _facts_loosely_match(left, right)
+    return bool(norm_left) and norm_left == norm_right
 
 
-def _live_fact_rows(store: MemoryStore, *, except_id: int | None = None) -> list[Any]:
+def _fact_rows(
+    store: MemoryStore,
+    *,
+    statuses: tuple[str, ...],
+    except_id: int | None = None,
+) -> list[Any]:
+    placeholders = ", ".join("?" for _ in statuses)
     rows = store._conn.execute(
-        """
+        f"""
         SELECT id, text, source, status, created_at, updated_at, session_id, key
         FROM facts
-        WHERE status IN ('active', 'pending')
+        WHERE status IN ({placeholders})
         ORDER BY id ASC
-        """
+        """,
+        statuses,
     ).fetchall()
     if except_id is None:
         return list(rows)
     skip = int(except_id)
     return [row for row in rows if int(row["id"]) != skip]
+
+
+def _live_fact_rows(store: MemoryStore, *, except_id: int | None = None) -> list[Any]:
+    return _fact_rows(store, statuses=("active", "pending"), except_id=except_id)
 
 
 def _row_key(row: Any) -> str | None:
@@ -56,14 +70,15 @@ def _row_key(row: Any) -> str | None:
     return _normalize_fact_key(str(row["key"]))
 
 
-def _find_matching_live_fact(
+def _find_matching_fact(
     store: MemoryStore,
     text: str,
     *,
+    statuses: tuple[str, ...],
     key: str | None = None,
     except_id: int | None = None,
 ) -> Any | None:
-    rows = _live_fact_rows(store, except_id=except_id)
+    rows = _fact_rows(store, statuses=statuses, except_id=except_id)
     fact_key = _normalize_fact_key(key)
     if fact_key is not None:
         for row in rows:
@@ -75,10 +90,31 @@ def _find_matching_live_fact(
     for row in rows:
         if normalize_fact_text(str(row["text"] or "")) == norm:
             return row
-    for row in rows:
-        if _facts_loosely_match(text, str(row["text"] or "")):
-            return row
     return None
+
+
+def _find_matching_live_fact(
+    store: MemoryStore,
+    text: str,
+    *,
+    key: str | None = None,
+    except_id: int | None = None,
+) -> Any | None:
+    return _find_matching_fact(
+        store, text, statuses=("active", "pending"), key=key, except_id=except_id
+    )
+
+
+def _find_matching_rejected_fact(
+    store: MemoryStore,
+    text: str,
+    *,
+    key: str | None = None,
+    except_id: int | None = None,
+) -> Any | None:
+    return _find_matching_fact(
+        store, text, statuses=("rejected",), key=key, except_id=except_id
+    )
 
 
 def _reject_other_live_matches(
@@ -176,6 +212,21 @@ def add_fact(
             session_id=session_id,
             key=fact_key,
         )
+    rejected = _find_matching_rejected_fact(store, cleaned, key=fact_key)
+    if rejected is not None:
+        # An explicit remember after an Allow card may bring the claim back.
+        # A summarizer proposal must not.
+        if source == "explicit" and status == "active":
+            return _refresh_existing_fact(
+                store,
+                rejected,
+                text=cleaned,
+                source=source,
+                status=status,
+                session_id=session_id,
+                key=fact_key,
+            )
+        return int(rejected["id"])
     now = _utc_now()
     cur = store._conn.execute(
         """
@@ -328,7 +379,9 @@ def dedupe_and_promote_existing(store: MemoryStore) -> int:
     Existing archives only matched exact text, so near-duplicates piled up as
     new rows, and proposed facts stayed pending until a History click (then
     aged out). One pass keeps a single dated row per claim and makes leftover
-    proposals durable so they are not lost. Returns how many rows changed.
+    proposals durable so they are not lost. A leftover pending wording of a
+    claim that was already rejected or forgotten stays rejected. Returns how
+    many rows changed.
     """
     # Synthetic older-archive fixtures may not have a facts table yet.
     if not _facts_table_exists(store):
@@ -354,6 +407,7 @@ def dedupe_and_promote_existing(store: MemoryStore) -> int:
         changed += 1
 
     rows = _live_fact_rows(store)
+    rejected_rows = _fact_rows(store, statuses=("rejected",))
     clusters: list[list[Any]] = []
     for row in rows:
         placed = False
@@ -365,7 +419,29 @@ def dedupe_and_promote_existing(store: MemoryStore) -> int:
         if not placed:
             clusters.append([row])
 
+    def _blocked_by_rejected(cluster: list[Any]) -> bool:
+        if any(str(member["status"]) == "active" for member in cluster):
+            return False
+        return any(
+            _same_cluster(member, rejected)
+            for member in cluster
+            for rejected in rejected_rows
+        )
+
     for cluster in clusters:
+        if _blocked_by_rejected(cluster):
+            for row in cluster:
+                cur = store._conn.execute(
+                    """
+                    UPDATE facts
+                    SET status = 'rejected', updated_at = ?
+                    WHERE id = ? AND status != 'rejected'
+                    """,
+                    (now, int(row["id"])),
+                )
+                if cur.rowcount:
+                    changed += 1
+            continue
         survivor = _pick_survivor(cluster)
         latest = _latest_member(cluster)
         created_dates = [str(row["created_at"] or "") for row in cluster if row["created_at"]]

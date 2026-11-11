@@ -85,3 +85,55 @@ def test_v12_facts_are_deduped_and_pending_promoted(tmp_path: Path) -> None:
         assert work["status"] == "active"
     finally:
         store.close()
+
+
+def _write_v12_rejected_mango_fixture(path: Path) -> None:
+    conn = sqlite3.connect(path)
+    try:
+        conn.executescript(
+            """
+            CREATE TABLE facts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                text TEXT NOT NULL,
+                source TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                session_id TEXT,
+                key TEXT
+            );
+            INSERT INTO facts
+                (text, source, status, created_at, updated_at, session_id, key)
+            VALUES
+                ('favorite fruit is mango', 'explicit', 'rejected',
+                 '2026-01-01T00:00:00', '2026-02-01T00:00:00', NULL, NULL),
+                ('the user''s favorite fruit is mango', 'proposed', 'pending',
+                 '2026-03-01T00:00:00', '2026-03-01T00:00:00', NULL, NULL),
+                ('works on Arelis', 'explicit', 'active',
+                 '2026-04-01T00:00:00', '2026-04-01T00:00:00', NULL, NULL);
+            PRAGMA user_version = 12;
+            """
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_v12_rejected_claim_is_not_revived_by_pending_wording(tmp_path: Path) -> None:
+    path = tmp_path / "memory.db"
+    _write_v12_rejected_mango_fixture(path)
+
+    store = MemoryStore(path)
+    try:
+        assert store.schema_version == SCHEMA_VERSION
+        active = store.list_facts(status="active")
+        texts = {str(row["text"]) for row in active}
+        assert texts == {"works on Arelis"}
+        assert store.list_facts(status="pending") == []
+        rejected = store.list_facts(status="rejected")
+        mango = [row for row in rejected if "mango" in str(row["text"])]
+        assert mango
+        assert all(row["status"] == "rejected" for row in mango)
+        assert all("mango" not in str(row["text"]) for row in active)
+    finally:
+        store.close()

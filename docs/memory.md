@@ -23,4 +23,5 @@ still go through an Allow card, and then they appear in this same list.
 
 Older facts that were waiting for a click under History are kept and shown
 here, including ones that were worded almost the same as a fact she already
-had.
+had. A leftover wording of something you already forgot or declined stays
+forgotten.

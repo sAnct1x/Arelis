@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from arelis.memory import MemoryStore
 
 
@@ -80,5 +82,85 @@ def test_near_duplicate_fact_updates_existing_row(tmp_path: Path) -> None:
         mango = [item for item in _active(store) if "mango" in str(item["text"])]
         assert len(mango) == 1
         assert mango[0]["id"] == first
+    finally:
+        store.close()
+
+
+@pytest.mark.parametrize(
+    "texts",
+    [
+        ("the mass is 5 kg", "the mass is 6 kg"),
+        (
+            "weekly run distance is 10 kilometers",
+            "weekly run distance is 24 kilometers",
+        ),
+        ("meeting on 2026-01-01", "meeting on 2026-01-02"),
+        ("allergic to peanuts", "not allergic to peanuts"),
+        ("I work on Tuesdays", "I do not work on Tuesdays"),
+        ("likes cats", "likes cats and dogs", "likes dogs"),
+    ],
+)
+def test_distinct_facts_stay_separate(tmp_path: Path, texts: tuple[str, ...]) -> None:
+    store = MemoryStore(tmp_path / "memory.db")
+    try:
+        ids: list[int] = []
+        for text in texts:
+            fact_id = store.add_fact(text, source="explicit", status="active")
+            assert fact_id is not None
+            ids.append(fact_id)
+        rows = _active(store)
+        assert len(rows) == len(texts)
+        assert len(set(ids)) == len(texts)
+        assert {str(row["text"]) for row in rows} == set(texts)
+        by_id = {int(row["id"]): str(row["text"]) for row in rows}
+        for fact_id, text in zip(ids, texts, strict=True):
+            assert by_id[fact_id] == text
+    finally:
+        store.close()
+
+
+def test_on_pending_fact_does_not_revive_forgotten_claim(tmp_path: Path) -> None:
+    store = MemoryStore(tmp_path / "memory.db")
+    try:
+        fact_id = store.add_fact(
+            "favorite fruit is mango",
+            source="explicit",
+            status="active",
+        )
+        assert fact_id is not None
+        assert store.forget_fact("favorite fruit is mango") == 1
+        store.on_pending_fact("the user's favorite fruit is mango")
+        assert [row for row in _active(store) if "mango" in str(row["text"])] == []
+        row = next(item for item in store.list_facts() if int(item["id"]) == fact_id)
+        assert row["status"] == "rejected"
+    finally:
+        store.close()
+
+
+def test_explicit_remember_reactivates_forgotten_claim(tmp_path: Path) -> None:
+    store = MemoryStore(tmp_path / "memory.db")
+    try:
+        fact_id = store.add_fact(
+            "favorite fruit is mango",
+            source="explicit",
+            status="active",
+        )
+        assert fact_id is not None
+        _backdate(store, fact_id, "2026-01-01T00:00:00")
+        assert store.forget_fact("favorite fruit is mango") == 1
+        remembered = store.add_fact(
+            "the user's favorite fruit is mango",
+            source="explicit",
+            status="active",
+        )
+        assert remembered == fact_id
+        rows = _active(store)
+        assert len(rows) == 1
+        row = rows[0]
+        assert row["id"] == fact_id
+        assert row["text"] == "the user's favorite fruit is mango"
+        assert row["created_at"] == "2026-01-01T00:00:00"
+        assert str(row["updated_at"]) > "2026-01-01T00:00:00"
+        assert row["status"] == "active"
     finally:
         store.close()
