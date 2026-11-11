@@ -3527,7 +3527,12 @@ Item {
         Model {
             objectName: "barrierShell"
             position: Qt.vector3d(finiteNum(barrierSpec.cx, 0), finiteNum(barrierSpec.cy, 0.5), finiteNum(barrierSpec.cz, 0))
-            scale: Qt.vector3d(finiteNum(barrierSpec.a, 32), finiteNum(barrierSpec.h, 11), finiteNum(barrierSpec.a, 32))
+            // #Sphere, like #Cylinder, is a 100-unit primitive: diameter 100,
+            // radius 50. scale (R/50) makes a world radius of R metres.
+            // Using R/100 made a 16 m oval that sat inside the 32 m gates.
+            scale: Qt.vector3d(finiteNum(barrierSpec.a, 32) / 50.0,
+                               finiteNum(barrierSpec.h, 11) / 50.0,
+                               finiteNum(barrierSpec.a, 32) / 50.0)
             source: "#Sphere"
             materials: CustomMaterial {
                 shadingMode: CustomMaterial.Unshaded
@@ -3539,12 +3544,15 @@ Item {
                 cullMode: Material.NoCulling
                 property vector3d barrierColor: Qt.vector3d(0.486, 0.424, 0.949)
                 property real rimPow: 4.0
-                property real rimGain: 0.055
+                // SPEC 2.1 is rim 0.024 / cell 0.010 / body 0. On llvmpipe
+                // the filmic path plus no usable bloom leaves that too dim,
+                // so these are raised to match the DESIGN lit oval by eye.
+                property real rimGain: 0.12
                 property real cell: 2.2
-                property real lineW: 0.035
-                property real cellGain: 0.022
-                property real body: 0.0
-                property real backGain: 0.20
+                property real lineW: 0.045
+                property real cellGain: 0.048
+                property real body: 0.022
+                property real backGain: 0.22
                 property real emp: root.egressMuted ? 1.0 : 0.0
                 property real gateCount: Math.min(8, (root.gateList || []).length)
                 property vector4d gate0: root._gateV(0)

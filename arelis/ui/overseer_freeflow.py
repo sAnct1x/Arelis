@@ -1187,6 +1187,11 @@ class FreeflowSession:
         layout["memoryMotes"] = [{"x": x, "y": y, "z": z} for x, y, z in memory_mote_points(mem)]
         layout["toolSparks"] = [tool_spark_pose(i, 0.0) for i in range(min(8, len(tools)))]
         layout["egressMuted"] = bool(sim.egress_muted) if sim is not None else bool(snap.get("egress_muted"))
+        if sim is not None:
+            # layout_static(N) uses N as n_inside; the sim counts only
+            # defenders and gatherers, which is the SPEC 2.4 rule.
+            layout["scaleK"] = float(sim.scale_k)
+            layout["insideCap"] = int(sim.cap_inside)
         return layout
 
 

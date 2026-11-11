@@ -38,24 +38,13 @@ LENS_COLOR = {
 }
 EYE_FETCHING = "#2fc4ff"
 EYE_THREAT = "#ff2a3c"
-# Unit size at the overview (BAND-SPEC.md "Unit scale at overview").
-# Pass E heads are authored in metres (pod length 2.0 m), so UNIT_MESH_SCALE is 1.
-# Chat-off 4.5 percent of width needs a Harvester of about 1.70 (1.31 x the
-# BAND-SPEC 1.3). Sanitizers are capped at 1.2 so they do not fill the 5.3 m
-# lane at 128 units. Fetching stays 1.31 x 1.9 so a live fetch still reads
-# larger than an idle Harvester.
-OVERVIEW_SCALE = {
-    "sanitizer": 1.05,
-    "warden": 1.25,
-    "stalker": 1.25,
-    "harvester": 1.3,
-    "tripwire": 1.35,
-}
-FETCHING_SCALE = 1.9
+# Pass F SPEC 2.4 / 7: draw scale is caste scale × SCALE_K, with
+# SCALE_K = clamp(sqrt(30 / n_inside), 0.64, 1.0). Pass E heads are
+# authored in metres (pod length 2.0 m), so UNIT_MESH_SCALE is 1.
+# The pre-Pass-F BAND-SPEC OVERVIEW_SCALE × 1.31 chat-off multiplier
+# (warden 1.64, harvester 1.70) is not used: at 100 units it drew
+# bodies ~2.6–3.0× too large versus the DESIGN renders (caste × 0.64).
 UNIT_MESH_SCALE = 1.0
-CHAT_OFF_SCALE_MULT = 1.31
-SANITIZER_SCALE_CAP = 1.2
-USE_CHAT_OFF_SCALE = True
 LOD0_PX = 180.0
 LOD1_PX = 60.0
 HYST = 0.15
@@ -404,25 +393,22 @@ def unit_fetching(unit: dict[str, Any]) -> bool:
     return int(unit.get("open_fetches") or 0) > 0 or state == "ENGAGED_HARVEST"
 
 
-def view_scale(unit: dict[str, Any]) -> float:
-    """Draw scale from the BAND-SPEC caste size, not the hive tier scale.
+def view_scale(unit: dict[str, Any], scale_k: float | None = None) -> float:
+    """Pass F draw scale: caste scale × SCALE_K (SPEC 2.4).
 
-    The hive's tier scale (mk1 0.35, mk2 0.42, mk3 0.50) sizes separation in
-    the hive and was drawn as is, so every unit was about a third of the
-    BAND-SPEC overview size and its eye was under a pixel.
+    Not the hive tier scale, and not the pre-Pass-F BAND-SPEC overview
+    sizes. SCALE_K is the layout factor (floor 0.64). A missing factor
+    is treated as 1.0 (one unit, or a test that did not pass layout).
     """
+    from arelis.ui.overseer_freeflow import CASTES, KMIN
+
     caste = str(unit.get("caste") or "warden").lower()
-    if unit_fetching(unit):
-        spec = FETCHING_SCALE
-        if USE_CHAT_OFF_SCALE:
-            spec *= CHAT_OFF_SCALE_MULT
-    else:
-        spec = OVERVIEW_SCALE.get(caste, 1.25)
-        if USE_CHAT_OFF_SCALE:
-            spec *= CHAT_OFF_SCALE_MULT
-            if caste == "sanitizer":
-                spec = min(spec, SANITIZER_SCALE_CAP)
-    return round(spec * UNIT_MESH_SCALE, 4)
+    base = float((CASTES.get(caste) or CASTES["warden"])["scale"])
+    if scale_k is None:
+        raw = unit.get("scaleK", unit.get("scale_k"))
+        scale_k = 1.0 if raw is None else float(raw)
+    k = max(float(KMIN), min(1.0, float(scale_k)))
+    return round(base * k * UNIT_MESH_SCALE, 4)
 
 
 def eye_color(unit: dict[str, Any], caste: str) -> str:
@@ -2372,9 +2358,11 @@ def build_frame(
     threat_open = threat_is_open(units, nodes)
     opens = source_open_counts(units, nodes)
     source_nodes, source_labels = build_source_nodes(opens, radius=layout["sourceRadius"])
+    scale_k = float(layout.get("scaleK") if layout.get("scaleK") is not None else 1.0)
     for i, u in enumerate(units):
         u["open_fetches"] = fetches.get(str(u.get("unit_id") or ""), 0)
-        u["scale"] = view_scale(u)
+        u["scaleK"] = scale_k
+        u["scale"] = view_scale(u, scale_k)
         u["unit_index"] = i
         u["threat_dim"] = bool(threat_open and not unit_engaged_defense(u))
         tgt = harvest_target_of(u, layout["sourceRadius"])
