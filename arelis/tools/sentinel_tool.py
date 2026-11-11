@@ -1,7 +1,7 @@
 """Sentinel tools for the model: four reads and five controls.
 
 Reads: status, units, logs, castes. Controls: deploy (spawn_units), stop
-(retire_unit or scale_caste to 0), retask (dispatch_task), mission
+(retire_unit, or scale_caste by a count or to 0), retask (dispatch_task), mission
 (deploy_harvest_swarm) and emp (emp_halt). There is no restore tool: only
 Christopher can undo an emergency stop. The bridge keeps its own send block,
 caps and AuthorityGate; nothing here bypasses them.
@@ -382,7 +382,12 @@ async def _known_caste(raw: Any) -> tuple[str, dict[str, Any], ToolResult | None
     by_id = {str(d.get("caste_id") or ""): d for d in reply.get("castes") or []}
     if cid not in by_id:
         return "", {}, _refuse(f"Unknown caste {cid!r}. Known: {', '.join(by_id)}.")
-    return cid, by_id[cid], None
+    desc = dict(by_id[cid])
+    try:
+        desc["units"] = int((reply.get("counts") or {}).get(cid, 0))
+    except (TypeError, ValueError):
+        desc["units"] = 0
+    return cid, desc, None
 
 
 def build_retask_payload(
@@ -433,7 +438,7 @@ class SentinelCommandTool:
 
     _ARGS = {
         "deploy": {"caste", "count"},
-        "stop": {"unit_id", "caste"},
+        "stop": {"unit_id", "caste", "count"},
         "retask": {"caste", "capability", "target", "payload"},
         "mission": {"question"},
     }
@@ -471,22 +476,65 @@ class SentinelCommandTool:
             data={"spawned": spawned, "total_units": reply.get("total_units")},
         )
 
-    async def _stop(self, unit_id: str = "", caste: str = "") -> ToolResult:
+    async def _stop(self, unit_id: str = "", caste: str = "", count: Any = None) -> ToolResult:
         uid = str(unit_id or "").strip()
         if bool(uid) == bool(str(caste or "").strip()):
             return _refuse("Give exactly one of unit_id or caste.")
+        n: int | None = None
+        if count not in (None, ""):
+            if uid:
+                return _refuse("count is for a caste stand-down, not a unit.")
+            if isinstance(count, bool):
+                return _refuse("count must be a whole number.")
+            try:
+                n = int(count)
+            except (TypeError, ValueError):
+                return _refuse("count must be a whole number.")
+            if n < 1:
+                return _refuse("count must be at least 1.")
         if uid:
             reply = await _call("retire_unit", unit_id=uid)
             if not reply.get("ok"):
                 return _fail(reply) if reply.get("error") else _refuse(f"No unit {uid}.")
             return ToolResult(ok=True, output=f"Retired {uid}.", data={"unit_id": uid})
-        cid, _desc, err = await _known_caste(caste)
+        cid, desc, err = await _known_caste(caste)
         if err is not None:
             return err
-        reply = await _call("scale_caste", caste=cid, target_count=0)
+        if n is None:
+            target = 0
+        else:
+            target = max(0, int(desc.get("units") or 0) - n)
+        reply = await _call("scale_caste", caste=cid, target_count=target)
         if not reply.get("ok"):
             return _fail(reply)
-        return ToolResult(ok=True, output=f"Stood down every {cid}.", data={"caste": cid})
+        retired = reply.get("retired") or []
+        if isinstance(retired, list):
+            n_retired = len(retired)
+        else:
+            try:
+                n_retired = int(retired)
+            except (TypeError, ValueError):
+                n_retired = 0
+        try:
+            remaining = int(reply["count"])
+        except (KeyError, TypeError, ValueError):
+            remaining = None
+        if n is None:
+            output = f"Stood down every {cid} ({n_retired} retired)."
+        elif remaining is None:
+            output = f"Stood down {n_retired} {cid}."
+        else:
+            output = f"Stood down {n_retired} {cid}; {remaining} remain."
+        return ToolResult(
+            ok=True,
+            output=output,
+            data={
+                "caste": cid,
+                "retired": retired if isinstance(retired, list) else [],
+                "retired_count": n_retired,
+                "remaining": remaining,
+            },
+        )
 
     async def _retask(
         self, caste: str = "", capability: str = "", target: str = "", payload: Any = None
