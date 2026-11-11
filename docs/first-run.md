@@ -34,3 +34,9 @@ If you close the window before the download finishes, the next launch asks
 again. The unfinished file is still there.
 
 Once the file is on this PC, she does not ask again.
+
+## After that
+
+Talk as you normally would. Those chats are saved. Open History
+(Ctrl+Shift+F) later to find one and continue it. See
+[chat-history.md](chat-history.md).
