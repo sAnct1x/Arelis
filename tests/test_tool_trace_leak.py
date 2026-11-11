@@ -203,6 +203,14 @@ async def test_conversation_trim_starts_on_a_user_row() -> None:
     )
     history = [row for row in messages if row.get("content") != "PERSONA"]
     assert history
+    # A speak-mode drop may now carry a compaction pin. The invariant is
+    # that the kept turns still open on q3, not leftover a2 from a
+    # miscounted trace note.
+    if history[0]["role"] == "system" and "earlier in this conversation" in str(
+        history[0].get("content") or ""
+    ):
+        history = history[1:]
+    assert history
     assert history[0]["role"] == "user"
     assert [row["content"] for row in history] == ["q3", "a3"]
 

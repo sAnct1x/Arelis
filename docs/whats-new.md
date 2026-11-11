@@ -17,7 +17,7 @@ Notes: [v0.3.4](releases/v0.3.4.md). Older:
 
 ## 0.3.5 (in progress)
 
-- Chat history: conversations are saved as she writes, so a crash or Stop mid-reply keeps the words already on screen. History search looks through message text in every saved chat, not only recent titles. Open History (Ctrl+Shift+F) to find an earlier conversation and click it to reopen the whole thread. Starting the app still opens a new chat; yesterday's thread stays in History. See [chat-history.md](chat-history.md).
+- Chat history: conversations are saved as she writes, so a crash or Stop mid-reply keeps the words already on screen. History search looks through message text in every saved chat, not only recent titles. Open History (Ctrl+Shift+F) to find an earlier conversation and click it to reopen the whole thread. Starting the app still opens a new chat; yesterday's thread stays in History. When a long chat is summarized so later replies still fit, exact numbers, equations and decisions are kept word for word, and a line in the transcript marks where that happened. The original messages stay in History. See [chat-history.md](chat-history.md).
 - Sentinels: "Stand down those 3 Harvesters" now retires exactly 3 and leaves the rest, and the reply says how many were retired. Asking to stand down a whole caste still retires every unit of it. See [sentinels.md](sentinels.md).
 
 - Sentinels: chat is hidden and disabled while the Overseer is open, including the composer and per-token painting, and comes back for the current theme when the Overseer closes, including a reply that arrived while it was open. Screen readers see it as hidden or disabled. See [sentinels.md](sentinels.md).

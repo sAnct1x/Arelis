@@ -75,6 +75,11 @@ class EventType(str, Enum):
     carries the messages back for the chat to paint. A load while a turn is
     mid-flight is refused rather than raced.
 
+    CHAT_COMPACTED is published after older turns are folded out of the
+    model's working set. The archive still has the original messages. The
+    payload may include the full transcript with a notice at the cut so the
+    chat can paint the marker in place.
+
     SMS_RECEIVED is inbound text while the desktop UI is open. The inbound
     watcher polls SMSGate Local Server GET /inbox and publishes one event per
     new message id. The UI always records it (Notifications unread + inbound_sms
@@ -142,6 +147,7 @@ class EventType(str, Enum):
     MOBILE_SYNC = "mobile_sync"
     SESSION_LOAD = "session_load"
     SESSION_LOADED = "session_loaded"
+    CHAT_COMPACTED = "chat_compacted"
     SMS_RECEIVED = "sms_received"
     ROOM_CHANGED = "room_changed"
     CALENDAR_CHANGED = "calendar_changed"

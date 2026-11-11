@@ -341,7 +341,7 @@ def get_messages(store: MemoryStore, session_id: str) -> list[dict[str, Any]]:
         SELECT id, role, content, note, created_at, ordinal
         FROM messages
         WHERE session_id = ?
-        ORDER BY ordinal ASC
+        ORDER BY ordinal ASC, id ASC
         """,
         (session_id,),
     ).fetchall()
@@ -353,6 +353,117 @@ def get_summary(store: MemoryStore, session_id: str) -> str:
         (session_id,),
     ).fetchone()
     return str(row["text"]) if row else ""
+
+
+def insert_compaction_marker(store: MemoryStore, kept: list[Any]) -> bool:
+    """Record a transcript marker just before the kept working-set rows.
+
+    Uses the same ordinal as the last dropped message so the row sorts after
+    it and before the first kept message (ORDER BY ordinal, id). Original
+    messages are not rewritten. Returns True when a new marker was written.
+    """
+    from arelis.core.compaction import (
+        COMPACTION_MARKER,
+        COMPACTION_MARKER_NOTE,
+        is_compaction_marker,
+    )
+
+    session_id = str(getattr(store, "session_id", "") or "")
+    if not session_id:
+        return False
+    rows = get_messages(store, session_id)
+    if not rows:
+        return False
+
+    def _pair(item: Any) -> tuple[str, str, str]:
+        if isinstance(item, dict):
+            return (
+                str(item.get("role") or ""),
+                str(item.get("content") or ""),
+                str(item.get("note") or ""),
+            )
+        return (
+            str(getattr(item, "role", "") or ""),
+            str(getattr(item, "content", "") or ""),
+            str(getattr(item, "note", "") or ""),
+        )
+
+    def _visible_pair(role: str, content: str, note: str) -> tuple[str, str] | None:
+        if is_compaction_marker(role, content, note) or role == "notice":
+            return None
+        return (role, content)
+
+    normalized: list[tuple[str, str]] = []
+    for item in kept:
+        pair = _visible_pair(*_pair(item))
+        if pair is not None:
+            normalized.append(pair)
+    if not normalized:
+        return False
+
+    visible_rows: list[dict[str, Any]] = []
+    for row in rows:
+        pair = _visible_pair(
+            str(row.get("role") or ""),
+            str(row.get("content") or ""),
+            str(row.get("note") or ""),
+        )
+        if pair is not None:
+            visible_rows.append(row)
+    if len(visible_rows) < len(normalized):
+        return False
+
+    def _row_pair(row: dict[str, Any]) -> tuple[str, str]:
+        return (str(row.get("role") or ""), str(row.get("content") or ""))
+
+    offset = len(visible_rows) - len(normalized)
+    if [_row_pair(row) for row in visible_rows[offset:]] != normalized:
+        offset = -1
+        first = normalized[0]
+        for index, row in enumerate(visible_rows):
+            if _row_pair(row) != first:
+                continue
+            tail = [_row_pair(item) for item in visible_rows[index : index + len(normalized)]]
+            if tail == normalized:
+                offset = index
+                break
+        if offset < 0:
+            return False
+    if offset <= 0:
+        return False
+
+    last_dropped = visible_rows[offset - 1]
+    first_kept = visible_rows[offset]
+
+    def _sort_key(row: dict[str, Any]) -> tuple[int, int]:
+        return (int(row["ordinal"]), int(row["id"]))
+
+    last_key = _sort_key(last_dropped)
+    first_key = _sort_key(first_kept)
+    for row in rows:
+        if last_key < _sort_key(row) < first_key and is_compaction_marker(
+            str(row.get("role") or ""),
+            str(row.get("content") or ""),
+            str(row.get("note") or ""),
+        ):
+            return False
+
+    store._conn.execute(
+        """
+        INSERT INTO messages (session_id, role, content, note, created_at, ordinal)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (
+            session_id,
+            "notice",
+            COMPACTION_MARKER,
+            COMPACTION_MARKER_NOTE,
+            _utc_now(),
+            int(last_dropped["ordinal"]),
+        ),
+    )
+    store._conn.commit()
+    return True
 
 
 def on_open_assistant(store: MemoryStore, content: str, *, flush_now: bool = False) -> None:

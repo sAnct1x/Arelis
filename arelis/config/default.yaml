@@ -232,6 +232,13 @@ agent:
   # There used to be two. SessionMemory defaulted to 40 and won, which meant the
   # oldest turns were deleted there — with no summary, no fold and no telemetry —
   # while the fold-instead-of-forget path below could never reach them.
+  #
+  # When this cap or the token budget trips, the fold keeps a short narrative
+  # (at most 800 characters) plus a deterministic verbatim list of exact
+  # numbers with units, equations or LaTeX, code identifiers and decisions
+  # (at most 1200 characters, 24 items). The combined pin is at most 2000
+  # characters. Reopening a long chat compacts the same way instead of
+  # silently trimming. The archive keeps the original messages.
   history_max_messages: 600
   # Always keep this many recent prompt-visible messages, even when the
   # system prefix has already spent the token budget. 6 = prior 2 turns

@@ -26,3 +26,23 @@ them and continue.
 Right-click a chat to pin it to the top of the list, or to delete it.
 Delete cannot be undone. The **new** button (or Ctrl+N) starts a fresh
 conversation.
+
+## Long chats
+
+When a conversation gets long, Arelis summarizes the earlier turns so
+she can keep talking without running out of room. The full original
+messages stay in History; only what she uses for the next reply is
+folded.
+
+That summary keeps exact numbers with their units, equations, and
+decisions word for word, copied from the original turns, not only from
+the short paragraph she writes. The short paragraph is at most 800
+characters, the word-for-word list is at most 1,200 characters (up to
+24 items), and the combined note she carries forward is at most 2,000
+characters. A long derivation that does not fit stays in the original
+message in this chat.
+
+A line saying "Earlier messages summarized" marks the place in the
+transcript where that fold happened. You can still scroll up and read
+the original turns above it.
+

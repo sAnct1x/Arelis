@@ -897,6 +897,10 @@ class MemoryStore:
     def get_summary(self, session_id: str) -> str:
         return sessions.get_summary(self, session_id)
 
+    def insert_compaction_marker(self, kept: list[Any]) -> bool:
+        """Place a transcript marker before the kept working-set rows."""
+        return sessions.insert_compaction_marker(self, kept)
+
     def search(self, query: str, *, limit: int = 20) -> list[SearchHit]:
         """Keyword search across archived messages.
 
