@@ -31,7 +31,8 @@ def test_forget_live_pass_facts_leaves_real_facts(tmp_path: Path) -> None:
     forgotten = forget_live_pass_facts(store)
     remaining = [row["text"] for row in store.list_facts(status="active")]
 
-    assert forgotten == 3
+    # The two token wordings normalize to one fact, so two rows are forgotten.
+    assert forgotten == 2
     assert remaining == ["Alex loves space"]
     store.close()
 

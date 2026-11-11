@@ -144,9 +144,9 @@ def append_stable_operating_context(
     contacts_line = contacts_prompt_line()
     if contacts_line:
         messages.append({"role": "system", "content": contacts_line})
-    facts_line = loop._active_facts_line()
-    if facts_line:
-        messages.append({"role": "system", "content": facts_line})
+    # Durable facts, preferences, and decisions are selected per turn in
+    # memories_prompt_for_turn and appended to the volatile tail, so a
+    # long unranked list cannot crowd the cached prefix.
 
     store = loop.memory.sink if isinstance(loop.memory.sink, MemoryStore) else None
     if store is not None:

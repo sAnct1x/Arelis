@@ -85,11 +85,12 @@ class _PageTabBar(QTabBar):
 class SettingsDialog(QDialog):
     """Frameless glass settings surface. Emits applied when the user accepts.
 
-    Memory forget commits immediately via fact_decided (not batched with Apply).
+    Memory edit and forget commit immediately (not batched with Apply).
     """
 
     applied = Signal(dict)
     fact_decided = Signal(object, str)
+    fact_edited = Signal(int, str)
 
     def __init__(
         self,
@@ -825,6 +826,7 @@ class SettingsDialog(QDialog):
         self.memory.setObjectName("SettingsTabBody")
         self.memory.setAccessibleName("memory")
         self.memory.fact_decided.connect(self.fact_decided.emit)
+        self.memory.fact_edited.connect(self.fact_edited.emit)
         self.memory.set_facts(list(active_facts or []))
         tabs.addTab(self.memory, "memory")
         self.tabs = tabs
@@ -890,7 +892,7 @@ class SettingsDialog(QDialog):
         return super().eventFilter(obj, event)
 
     def set_active_facts(self, facts: list[dict[str, object]]) -> None:
-        """Refresh the Memory tab after a live forget (or external store change)."""
+        """Refresh the Memory tab after a live edit or forget (or external store change)."""
         self.memory.set_facts(facts)
 
     @staticmethod

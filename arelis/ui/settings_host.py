@@ -451,7 +451,16 @@ def open_settings(window, tab: str = "") -> None:
         if window.store is not None:
             dlg.set_active_facts(window.store.list_facts(status="active", limit=50))
 
+    def _on_memory_edit(fact_id: int, text: str) -> None:
+        if window.store is None:
+            return
+        if not window.store.edit_fact(int(fact_id), text):
+            return
+        window.thinking.append("fact updated", kind="status")
+        dlg.set_active_facts(window.store.list_facts(status="active", limit=50))
+
     dlg.fact_decided.connect(_on_memory_fact)
+    dlg.fact_edited.connect(_on_memory_edit)
     dlg.exec()
 
 
