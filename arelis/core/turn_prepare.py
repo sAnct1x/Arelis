@@ -68,6 +68,7 @@ from arelis.core.tool_surface import (
 from arelis.core.turn_context import TurnContext
 from arelis.core.turn_telemetry import TurnTimer, turn_telemetry_enabled
 from arelis.llm.router import ModelRole
+from arelis.memory.retrieval import memories_prompt_for_turn
 
 log = logging.getLogger(__name__)
 
@@ -766,6 +767,9 @@ async def prepare_turn(
         model=model,
         skill_ids=skill_ids,
     )
+    retrieved = await memories_prompt_for_turn(loop, text)
+    if retrieved:
+        turn_tail.append({"role": "system", "content": retrieved})
     append_clock(turn_tail, loop)
     num_ctx, tool_reserve_chars = await _context_limits(
         loop,

@@ -37,6 +37,7 @@ def test_operating_and_delivery_sections_keep_the_volatile_tail_last(monkeypatch
         _expected_tools=set(),
         _active_facts_line=lambda: "FACTS",
         memory=SimpleNamespace(sink=Store()),
+        tools=None,
     )
     messages = [
         {"role": "system", "content": "PERSONA"},
@@ -59,16 +60,15 @@ def test_operating_and_delivery_sections_keep_the_volatile_tail_last(monkeypatch
     prefix_contents = [message["content"] for message in prefix]
     tail_contents = [message["content"] for message in tail]
     assert prefix_contents[:2] == ["PERSONA", "POLICY"]
-    assert prefix_contents[2:8] == [
+    assert prefix_contents[2:7] == [
         "ROOM",
         "LOCATION",
         "PROFILE",
         "CONTACTS",
-        "FACTS",
         "EPISODES",
     ]
-    assert "conversation mode" in prefix_contents[8]
-    assert prefix_contents[9:] == ["LANGUAGE", "THEME"]
+    assert "conversation mode" in prefix_contents[7]
+    assert prefix_contents[8:] == ["LANGUAGE", "THEME"]
     assert tail_contents == ["WORKSPACE", "WORLD", "NOW"]
 
 
@@ -195,6 +195,11 @@ async def test_prepare_turn_wires_sections_expected_tools_budget_and_history(mon
             {"role": "system", "content": "CLOCK"}
         ),
     )
+
+    async def fake_retrieve(_loop, _text):
+        return "RETRIEVED"
+
+    monkeypatch.setattr(subject, "memories_prompt_for_turn", fake_retrieve)
     monkeypatch.setattr(subject, "detect_exactness_need", lambda _text, **_k: captured.update(data_cell=_k.get("data_cell")) or SimpleNamespace(
         needs_web_evidence=False,
         needs_weather=False,
@@ -223,6 +228,7 @@ async def test_prepare_turn_wires_sections_expected_tools_budget_and_history(mon
         "GOAL",
         "PLAN_LESSONS",
         "VOLATILE_OPERATING",
+        "RETRIEVED",
         "CLOCK",
         "hello",
     ]
