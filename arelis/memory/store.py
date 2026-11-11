@@ -383,6 +383,10 @@ class MemoryStore:
         self.session_id: str | None = None
         self._ordinal = 0
         self._title_set = False
+        # In-progress assistant reply, so a crash mid-stream keeps the text.
+        self._open_assistant_id: int | None = None
+        self._open_assistant_text: str | None = None
+        self._open_assistant_written_at: float = 0.0
 
     @property
     def fts_available(self) -> bool:
@@ -399,6 +403,7 @@ class MemoryStore:
     def flush(self) -> None:
         """Commit and checkpoint so a quit does not leave WAL pages unwritten."""
         try:
+            sessions.flush_open_assistant(self)
             self._conn.commit()
             self._conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
         except sqlite3.Error:
@@ -590,6 +595,22 @@ class MemoryStore:
     def on_message(self, role: str, content: str, note: str = "") -> None:
         """Persist one message. Called from SessionMemory.add when a sink is set."""
         return sessions.on_message(self, role, content, note)
+
+    def on_open_assistant(self, content: str, *, flush_now: bool = False) -> None:
+        """Persist the in-progress assistant reply so a crash keeps the text so far."""
+        return sessions.on_open_assistant(self, content, flush_now=flush_now)
+
+    def clear_open_assistant(self) -> None:
+        """Drop a retracted in-progress assistant row."""
+        return sessions.clear_open_assistant(self)
+
+    def seal_open_assistant(self, content: str) -> None:
+        """Commit the in-progress reply as a finished row (cancel / stop)."""
+        return sessions.seal_open_assistant(self, content)
+
+    def search_sessions(self, query: str, *, limit: int = 200) -> list[dict[str, Any]]:
+        """Sessions whose title or message body matches ``query`` (FTS or LIKE)."""
+        return sessions.search_sessions(self, query, limit=limit)
 
     def append_to_session(
         self, session_id: str, role: str, content: str, note: str = ""

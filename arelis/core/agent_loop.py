@@ -1993,6 +1993,28 @@ class AgentLoop:
         await self.bus.publish(Event(EventType.THINKING, {"text": label}))
         await self.bus.publish(Event(EventType.STATUS, {"message": label}))
 
+
+    def _archive_open_assistant(
+        self, content: str = "", *, seal: bool = False, clear: bool = False
+    ) -> None:
+        """Write, seal, or drop the in-progress assistant row on the archive sink."""
+        sink = getattr(self.memory, "sink", None)
+        if sink is None:
+            return
+        if clear:
+            fn = getattr(sink, "clear_open_assistant", None)
+            if callable(fn):
+                fn()
+            return
+        if seal:
+            fn = getattr(sink, "seal_open_assistant", None)
+            if callable(fn):
+                fn(content)
+            return
+        fn = getattr(sink, "on_open_assistant", None)
+        if callable(fn):
+            fn(content)
+
     async def _publish_round_text(self, text: str) -> None:
         """Publish answer text. A later round starts its own paragraph."""
         if not text:
@@ -2014,6 +2036,9 @@ class AgentLoop:
         self._painted += text
         if self._timer is not None and text:
             self._timer.note_first_delta()
+        archive = getattr(self, "_archive_open_assistant", None)
+        if callable(archive):
+            archive(self._painted)
         await self.bus.publish(Event(EventType.ASSISTANT_DELTA, {"text": text}))
 
     async def _retract(self) -> None:
@@ -2022,6 +2047,9 @@ class AgentLoop:
         if not self._painted:
             return
         self._painted = ""
+        archive = getattr(self, "_archive_open_assistant", None)
+        if callable(archive):
+            archive(clear=True)
         await self.bus.publish(Event(EventType.ASSISTANT_RETRACT, {}))
 
     async def _confirm_wait_heartbeat(self, tool: str, started: float) -> None:
@@ -2208,11 +2236,11 @@ class AgentLoop:
             passthrough = tool_passthrough_note(passthrough_tool)
             note = f"{note}\n{passthrough}" if note else passthrough
         self._remember_sent_follow()
-        self.memory.add("assistant", final, note=note)
 
-        # Usually the answer was already streamed and only the appended Sources
-        # list is still owed. When the text changed under us, for example
-        # because a {"final": ...} payload replaced it, retract and resend.
+        # Catch up the bubble before writing the finished row. memory.add
+        # updates the open assistant row and clears its id, so a remainder
+        # or a retract-and-resend after that write would start a second row
+        # that is never sealed.
         already = streamed.strip()
         if already and final.startswith(already):
             remainder = final[len(already) :]
@@ -2221,6 +2249,8 @@ class AgentLoop:
         else:
             await self._retract()
             await self._publish_delta(final)
+
+        self.memory.add("assistant", final, note=note)
 
         self.terminal_sent = True
         self._painted = ""
@@ -2322,6 +2352,9 @@ class AgentLoop:
 
         word = tr("Stopped.")
         text = f"{partial}\n\n_{word}_" if partial else word
+        archive = getattr(self, "_archive_open_assistant", None)
+        if callable(archive):
+            archive(text, seal=True)
         # publish_nowait, not publish: this also runs while a CancelledError is
         # propagating, and anything that suspends there can be interrupted
         # again, which would lose the terminal event and hang the composer.
@@ -2331,6 +2364,9 @@ class AgentLoop:
 
     async def _publish_error(self, message: str, *, detail: str = "") -> None:
         self.terminal_sent = True
+        archive = getattr(self, "_archive_open_assistant", None)
+        if callable(archive) and self._painted.strip():
+            archive(self._painted, seal=True)
         self._painted = ""
         if detail:
             await self.bus.publish(Event(EventType.THINKING, {"text": detail}))
