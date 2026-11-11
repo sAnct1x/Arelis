@@ -20,14 +20,16 @@ from pathlib import Path
 # Absolute paths typed in chat that may need a session read grant.
 # Paths with spaces (a Desktop folder named "Arelis 0.3.5 test files") must
 # be included; a token that stops at the first space never issues the Allow
-# card for the file the user typed.
+# card for the file the user typed. private is the macOS realpath prefix
+# for /var, /tmp, and /etc; without it a typed /private/var path is
+# matched from /var and the extracted string drops /private.
 _ABS_PATH_TOKEN = re.compile(
     r"(?P<path>"
     r"(?:[A-Za-z]:[\\/][^\s\"'<>|]+)"
-    r"|(?:/(?:Users|home|tmp|var|etc|opt)[^\s\"'<>|]*))"
+    r"|(?:/(?:Users|home|tmp|var|etc|opt|private)[^\s\"'<>|]*))"
 )
 _ABS_PATH_START = re.compile(
-    r"[A-Za-z]:[\\/]|/(?:Users|home|tmp|var|etc|opt)/"
+    r"[A-Za-z]:[\\/]|/(?:Users|home|tmp|var|etc|opt|private)/"
 )
 _FILE_EXT = re.compile(r"\.[A-Za-z][A-Za-z0-9]{0,7}$")
 _PATH_ILLEGAL = frozenset("\"'<>|\r\n\t")

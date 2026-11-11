@@ -10,19 +10,26 @@ savefig stay allowed either way. Ordinary Python writes (open, np.save,
 savefig) run in this turn's work folder, which is the process cwd. A write
 outside that folder or a writable results folder is refused at run time, so
 a path built in a variable still cannot change a file the user named.
-Process launchers stay refused. Matplotlib is imported before those stubs when a
-snippet asks for it. The parent sets MPL_IGNORE_SYSTEM_FONTS, so that import
-uses the bundled fonts and does not spawn system_profiler or fc-list.
+Process launchers stay refused. An audit hook also refuses process launch,
+network use, ctypes, imports of blocked modules, and reads of files outside
+the work folder, workspace roots, results folders, and the interpreter or
+library paths, at run time, even when those names come through a library
+such as openpyxl or matplotlib. Matplotlib
+is imported before the process stubs when a snippet asks for it. The parent
+sets MPL_IGNORE_SYSTEM_FONTS, so that import uses the bundled fonts and does
+not spawn system_profiler or fc-list.
 """
 
 from __future__ import annotations
 
+import _thread
 import ast
 import io
 import json
 import os
 import sys
 import tempfile
+import threading
 import time
 import traceback
 import warnings
@@ -53,6 +60,7 @@ _BASE_IMPORTS = frozenset(
         "sympy",
         "numpy",
         "scipy",
+        "openpyxl",
         "mpmath",
         "matplotlib",
     }
@@ -202,12 +210,12 @@ class _ChartImportError(ValueError):
 _BASE_LIST = (
     "math, cmath, statistics, fractions, decimal, itertools, functools, "
     "collections, operator, copy, json, re, datetime, sympy, numpy, scipy, "
-    "and mpmath"
+    "openpyxl, and mpmath"
 )
 _SCIENCE_LIST = (
     "math, cmath, statistics, fractions, decimal, itertools, functools, "
     "collections, operator, copy, json, re, datetime, sympy, numpy, scipy, "
-    "emcee, astropy, matplotlib, corner, csv, seaborn, and mpmath"
+    "openpyxl, emcee, astropy, matplotlib, corner, csv, seaborn, and mpmath"
 )
 
 
@@ -493,6 +501,7 @@ def _set_cwd(raw: Any) -> None:
 
 
 _WRITE_ROOTS: list[Path] = []
+_READ_ROOTS: list[Path] = []
 _IN_WRITE_HOOK = False
 _NULL_DEVICES = frozenset({os.path.normcase(os.devnull), "nul"})
 # Event name to (path argument positions, what the refusal calls the write).
@@ -517,6 +526,12 @@ _WRITE_REFUSAL = (
     "This cell cannot change a file outside its work folder or a results "
     "folder. Call run_script with the same code so the file card can ask "
     "first. Nothing was changed there."
+)
+_READ_REFUSAL = (
+    "This cell cannot read a file outside its work folder, a workspace "
+    "folder, or a results folder. Call run_script with the same code so "
+    "the file card can ask first, or use external_read for a file the "
+    "user named."
 )
 
 
@@ -586,6 +601,15 @@ def _writable_path(text: str) -> bool:
     return False
 
 
+def _readable_path(text: str) -> bool:
+    if os.path.normcase(text) in _NULL_DEVICES:
+        return True
+    for root in _READ_ROOTS:
+        if _inside_root(text, root):
+            return True
+    return False
+
+
 def _check_write(op: str, raw: Any, folder: str | None = None) -> None:
     text = _as_text(raw)
     if text is None:
@@ -595,6 +619,354 @@ def _check_write(op: str, raw: Any, folder: str | None = None) -> None:
     if _writable_path(text):
         return
     raise _CellBlocked(_WRITE_REFUSAL)
+
+
+def _check_read(raw: Any) -> None:
+    text = _as_text(raw)
+    if text is None:
+        return
+    if _readable_path(text):
+        return
+    raise _CellBlocked(_READ_REFUSAL)
+
+
+_PROCESS_EVENTS = frozenset(
+    {
+        "subprocess.Popen",
+        "os.system",
+        "os.exec",
+        "os.spawn",
+        "os.posix_spawn",
+        "os.startfile",
+        "os.fork",
+        "os.forkpty",
+        "_winapi.CreateProcess",
+    }
+)
+_NET_ADDRESS_EVENTS = frozenset({"socket.connect", "socket.sendto", "socket.bind"})
+_NET_NAME_EVENTS = frozenset(
+    {
+        "socket.getaddrinfo",
+        "socket.gethostbyname",
+        "socket.gethostbyname_ex",
+        "socket.gethostbyaddr",
+    }
+)
+# Loopback stays allowed; some libraries open a local socket. Bind treats
+# "", 0.0.0.0 and :: as not local (listening on every interface).
+_LOCAL_NAMES = frozenset({"", "localhost", "127.0.0.1", "::1", "0:0:0:0:0:0:0:1"})
+_BIND_ALL = frozenset({"", "0.0.0.0", "::"})
+_PROCESS_REFUSAL = "starting a process is not allowed in this cell."
+_NETWORK_REFUSAL = "the network is not allowed in this cell."
+_CTYPES_REFUSAL = "ctypes is not allowed in this cell."
+
+
+# Threads started by the cell, not the runner thread that executes it.
+_CELL_MAIN_THREAD = 0
+_CELL_THREADS: set[int] = set()
+_CELL_THREAD_LOCK = threading.Lock()
+_CELL_THREAD_HOOKED = False
+
+
+def _register_cell_thread(ident: int) -> None:
+    with _CELL_THREAD_LOCK:
+        _CELL_THREADS.add(ident)
+
+
+def _on_cell_started_thread() -> bool:
+    ident = threading.get_ident()
+    with _CELL_THREAD_LOCK:
+        return ident != _CELL_MAIN_THREAD and ident in _CELL_THREADS
+
+
+def _parent_starts_cell_thread() -> bool:
+    if _audit_cell_on_stack():
+        return True
+    ident = threading.get_ident()
+    with _CELL_THREAD_LOCK:
+        return ident in _CELL_THREADS or ident == _CELL_MAIN_THREAD
+
+
+def _install_cell_thread_tracking() -> None:
+    """Record threads the cell starts, including descendants.
+
+    A Thread target has no <python> frame when the target is a library
+    function such as import_module. The hook still has to treat that
+    thread as the cell. threading keeps its own copy of the low level
+    start function, under a name that differs by Python version, so
+    Thread.start is tagged directly: the new thread registers itself
+    before its run() starts.
+    """
+    global _CELL_MAIN_THREAD, _CELL_THREAD_HOOKED
+    _CELL_MAIN_THREAD = threading.get_ident()
+    with _CELL_THREAD_LOCK:
+        _CELL_THREADS.clear()
+        _CELL_THREADS.add(_CELL_MAIN_THREAD)
+    if _CELL_THREAD_HOOKED:
+        return
+    _CELL_THREAD_HOOKED = True
+    orig_new = _thread.start_new_thread
+    orig_joinable = getattr(_thread, "start_joinable_thread", None)
+
+    def _wrap_target(function: Any, from_cell: bool) -> Any:
+        def wrapped(*args: Any, **kwargs: Any) -> Any:
+            if from_cell:
+                _register_cell_thread(threading.get_ident())
+            return function(*args, **kwargs)
+
+        return wrapped
+
+    def start_new_thread(function: Any, args: Any, kwargs: Any = None) -> int:
+        from_cell = _parent_starts_cell_thread()
+        if kwargs is None:
+            kwargs = {}
+        return orig_new(_wrap_target(function, from_cell), args, kwargs)
+
+    _thread.start_new_thread = start_new_thread  # type: ignore[method-assign]
+    if orig_joinable is not None:
+
+        def start_joinable_thread(
+            function: Any, handle: Any = None, daemon: bool = True
+        ) -> Any:
+            from_cell = _parent_starts_cell_thread()
+            return orig_joinable(_wrap_target(function, from_cell), handle, daemon)
+
+        _thread.start_joinable_thread = start_joinable_thread  # type: ignore[method-assign]
+
+    orig_start = threading.Thread.start
+
+    def start(self: threading.Thread) -> None:
+        if _parent_starts_cell_thread():
+            run = self.run
+
+            def run_as_cell() -> None:
+                _register_cell_thread(threading.get_ident())
+                run()
+
+            self.run = run_as_cell  # type: ignore[method-assign]
+        orig_start(self)
+
+    threading.Thread.start = start  # type: ignore[method-assign]
+
+
+# Private native modules that hand out a live socket, TLS, a native
+# library loader, or process launch. They are dropped from sys.modules
+# before the cell runs, so sys.modules[...] cannot return the copy a
+# library loaded. A new load of any native module the cell asks for is
+# refused below.
+_PRIVATE_NATIVE_MODULES = frozenset(
+    {
+        "_socket",
+        "_ssl",
+        "_ctypes",
+        "_posixsubprocess",
+        "_winapi",
+        "_overlapped",
+        "_multiprocessing",
+        "select",
+    }
+)
+
+
+def _guard_native_loader(create: Any) -> Any:
+    def guarded(spec: Any, *args: Any) -> Any:
+        name = str(getattr(spec, "name", "") or "")
+        root = name.split(".", 1)[0]
+        if (
+            root
+            and root not in _allowed_imports()
+            and _audit_from_cell(loading_module=name)
+        ):
+            _import_refusal(root)
+        return create(spec, *args)
+
+    return guarded
+
+
+def _install_native_import_guard() -> None:
+    """Refuse builtin and extension module loads the cell starts.
+
+    import_module of a builtin such as _socket fires no import audit
+    event, so the audit hook never sees it. Every builtin or extension
+    load still goes through _imp, whichever route asked for it.
+    Libraries loading their own native parts are allowed, as for
+    the import event.
+    """
+    import _imp
+
+    for attr in ("create_builtin", "create_dynamic"):
+        create = getattr(_imp, attr, None)
+        if create is not None:
+            setattr(_imp, attr, _guard_native_loader(create))
+
+
+def _drop_private_native_modules() -> None:
+    for name in _PRIVATE_NATIVE_MODULES:
+        sys.modules.pop(name, None)
+
+
+def _norm_frame_name(filename: str) -> str:
+    return filename.replace("\\", "/")
+
+
+def _is_infra_frame(filename: str) -> bool:
+    return (
+        filename == __file__
+        or filename.startswith("<frozen")
+        or filename.startswith("<built-in")
+        or "importlib" in filename
+    )
+
+
+def _is_loading_module_frame(filename: str, module_name: str) -> bool:
+    """True when this frame is the module being imported, not its importer."""
+    text = _norm_frame_name(filename)
+    rel = module_name.replace(".", "/")
+    if not rel or not text:
+        return False
+    for ext in (".py", ".pyc", ".pyo", ".so", ".pyd", ".dylib"):
+        if text.endswith(ext):
+            stem = text[: -len(ext)]
+            break
+    else:
+        stem = text
+    leaf = stem.rsplit("/", 1)[-1]
+    if "." in leaf:
+        directory, leaf = stem.rsplit("/", 1) if "/" in stem else ("", stem)
+        leaf = leaf.split(".", 1)[0]
+        stem = f"{directory}/{leaf}" if directory else leaf
+    return (
+        stem.endswith("/" + rel)
+        or stem.endswith("/" + rel + "/__init__")
+        or stem == rel
+        or stem == rel + "/__init__"
+    )
+
+
+def _is_ctypes_frame(filename: str) -> bool:
+    text = _norm_frame_name(filename)
+    leaf = text.rsplit("/", 1)[-1]
+    if (
+        "/ctypes/" in text
+        or text.endswith("/ctypes.py")
+        or text.endswith("/ctypes.pyc")
+    ):
+        return True
+    if leaf.startswith("ctypes.") or leaf.startswith("_ctypes"):
+        return True
+    return text.startswith("<frozen ctypes") or text.startswith("<frozen _ctypes")
+
+
+# Stdlib names on the allowlist are not "libraries importing a
+# dependency". functools or json can appear on an import_module stack
+# without meaning the cell did not start the import.
+_STDLIB_IMPORTS = frozenset(
+    {
+        "math",
+        "cmath",
+        "statistics",
+        "fractions",
+        "decimal",
+        "itertools",
+        "functools",
+        "collections",
+        "operator",
+        "copy",
+        "json",
+        "re",
+        "datetime",
+        "csv",
+    }
+)
+
+
+def _frame_is_allowed_library(filename: str) -> bool:
+    if not filename or filename.startswith("<"):
+        return False
+    allowed = _allowed_imports() - _STDLIB_IMPORTS
+    for part in _norm_frame_name(filename).split("/"):
+        stem = part
+        if stem.endswith(".py"):
+            stem = stem[:-3]
+        elif "." in stem:
+            stem = stem.split(".", 1)[0]
+        if stem in allowed:
+            return True
+    return False
+
+
+def _audit_from_cell(
+    *, loading_module: str | None = None, skip_ctypes: bool = False
+) -> bool:
+    """True when the audited call was initiated by the user cell.
+
+    Allowed libraries import os, sys, socket, subprocess, and ctypes for
+    their own use. The hook must not refuse those. A call compiled as
+    <python> is the cell. The module being loaded is not the importer:
+    import_module('socket') would otherwise look like socket.py itself
+    made the import. A thread the cell started is also the cell, even
+    when the target is a library function and <python> is not on that
+    thread's stack.
+    """
+    frame = sys._getframe()
+    while frame is not None:
+        name = frame.f_code.co_filename
+        if (
+            _is_infra_frame(name)
+            or (
+                loading_module is not None
+                and _is_loading_module_frame(name, loading_module)
+            )
+            or (skip_ctypes and _is_ctypes_frame(name))
+        ):
+            frame = frame.f_back
+            continue
+        if name == "<python>":
+            return True
+        if _frame_is_allowed_library(name):
+            return False
+        frame = frame.f_back
+    return _on_cell_started_thread()
+
+
+def _audit_cell_on_stack() -> bool:
+    """True when the user cell is anywhere on the stack.
+
+    load_workbook opens the file from zipfile, so the first frame is a
+    library. The cell is still on the stack. Import-time reads before
+    the cell starts are not.
+    """
+    frame = sys._getframe()
+    while frame is not None:
+        if frame.f_code.co_filename == "<python>":
+            return True
+        frame = frame.f_back
+    return False
+
+
+def _local_host(host: Any) -> bool:
+    if host is None:
+        return True
+    if isinstance(host, bytes):
+        host = host.decode("ascii", "replace")
+    text = str(host).strip().lower()
+    return text in _LOCAL_NAMES or text.startswith("127.")
+
+
+def _check_address(address: Any, *, bind: bool = False) -> None:
+    if isinstance(address, (str, bytes)):
+        return  # AF_UNIX path: a local socket file, not the network.
+    host = address[0] if isinstance(address, tuple) and address else None
+    if bind:
+        raw = host
+        if isinstance(raw, bytes):
+            raw = raw.decode("ascii", "replace")
+        text = "" if raw is None else str(raw).strip().lower()
+        if text in _BIND_ALL:
+            raise _CellBlocked(_NETWORK_REFUSAL)
+    if _local_host(host):
+        return
+    raise _CellBlocked(_NETWORK_REFUSAL)
 
 
 def _write_audit(event: str, args: tuple[Any, ...]) -> None:
@@ -614,7 +986,27 @@ def _write_audit_inner(event: str, args: tuple[Any, ...]) -> None:
         flags = args[2] if len(args) > 2 else 0
         if args and _is_write_open(mode, flags):
             _check_write("write", args[0])
+            return
+        if args and _audit_cell_on_stack():
+            _check_read(args[0])
         return
+    if event in _PROCESS_EVENTS:
+        raise _CellBlocked(_PROCESS_REFUSAL)
+    if event == "sys.addaudithook":
+        raise _CellBlocked("changing the audit hook is not allowed in this cell.")
+    if event.startswith("ctypes.") and _audit_from_cell(skip_ctypes=True):
+        raise _CellBlocked(_CTYPES_REFUSAL)
+    if event == "import":
+        name = str(args[0] or "") if args else ""
+        root = name.split(".", 1)[0]
+        if root and _audit_from_cell(loading_module=name) and root not in _allowed_imports():
+            _import_refusal(root)
+        return
+    if event in _NET_ADDRESS_EVENTS and len(args) >= 2:
+        _check_address(args[1], bind=(event == "socket.bind"))
+        return
+    if event in _NET_NAME_EVENTS and args and not _local_host(args[0]):
+        raise _CellBlocked(_NETWORK_REFUSAL)
     spec = _WRITE_EVENTS.get(event)
     if spec is None:
         return
@@ -626,8 +1018,69 @@ def _write_audit_inner(event: str, args: tuple[Any, ...]) -> None:
             _check_write(op, args[index], folder)
 
 
+def _system_read_roots() -> list[Path]:
+    """Interpreter, stdlib, site-packages, temp, cache, and system data dirs."""
+    found: list[Path] = []
+
+    def add(raw: Any) -> None:
+        text = str(raw or "").strip()
+        if not text:
+            return
+        try:
+            found.append(Path(os.path.abspath(text)))
+        except OSError:
+            return
+
+    for raw in (
+        sys.prefix,
+        sys.exec_prefix,
+        getattr(sys, "base_prefix", None),
+        getattr(sys, "base_exec_prefix", None),
+    ):
+        add(raw)
+    try:
+        import sysconfig
+
+        for key in ("stdlib", "platstdlib", "purelib", "platlib"):
+            add(sysconfig.get_path(key))
+    except Exception:
+        # sysconfig is missing or broken; prefix and sys.path still cover us.
+        pass
+    for entry in sys.path:
+        if entry:
+            add(entry)
+    add(tempfile.gettempdir())
+    if _CACHE_ROOT is not None:
+        add(_CACHE_ROOT)
+    if sys.platform == "win32":
+        for key in ("SystemRoot", "WINDIR"):
+            add(os.environ.get(key))
+    else:
+        for raw in (
+            "/usr/lib",
+            "/usr/lib64",
+            "/lib",
+            "/lib64",
+            "/usr/local/lib",
+            "/usr/share",
+            "/System",
+            "/Library/Frameworks",
+            "/etc",
+            "/dev",
+        ):
+            add(raw)
+    return found
+
+
 def _install_write_guard(payload: dict[str, Any]) -> None:
-    """Refuse writes outside the work folder, results folders, and the cache."""
+    """Refuse outside writes and reads, process launch, network, ctypes, and imports.
+
+    The hook cannot be removed. A later addaudithook call is refused. Imports
+    that allowed libraries make for their own use still run; the same import
+    from the cell does not. A read of a user file is refused when the cell
+    is on the stack, so load_workbook of an outside path cannot return it.
+    Library files, the work folder, workspace roots, and results stay readable.
+    """
     roots: list[Path] = []
     work = str(payload.get("work") or "").strip()
     if work:
@@ -642,18 +1095,28 @@ def _install_write_guard(payload: dict[str, Any]) -> None:
             pass
     if _CACHE_ROOT is not None:
         roots.append(_CACHE_ROOT)
+    read_roots: list[Path] = list(roots)
     for entry in payload.get("roots") or []:
-        if not isinstance(entry, dict) or not entry.get("write"):
+        if not isinstance(entry, dict):
             continue
         raw = str(entry.get("path") or "").strip()
         if not raw:
             continue
         try:
-            roots.append(Path(os.path.abspath(raw)) / "results")
+            base = Path(os.path.abspath(raw))
         except OSError:
             continue
+        read_roots.append(base)
+        if entry.get("write"):
+            roots.append(base / "results")
+            read_roots.append(base / "results")
+    read_roots.extend(_system_read_roots())
     _WRITE_ROOTS.clear()
     _WRITE_ROOTS.extend(roots)
+    _READ_ROOTS.clear()
+    _READ_ROOTS.extend(read_roots)
+    _install_cell_thread_tracking()
+    _install_native_import_guard()
     sys.addaudithook(_write_audit)
 
 
@@ -1081,6 +1544,7 @@ def main() -> None:
         _set_cwd(payload.get("work"))
         _install_write_guard(payload)
         _stub_process_launchers()
+        _drop_private_native_modules()
         _announce()
         try:
             text = _execute(code, namespace)

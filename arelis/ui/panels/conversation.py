@@ -429,7 +429,13 @@ class ConversationStage(GlassFrame):
         self._stage_paths(paths)
         event.acceptProposedAction()
 
+    def _overseer_hides_chat(self) -> bool:
+        win = self.window()
+        return bool(win is not None and getattr(win, "_overseer_chat_suspend", None))
+
     def _pick_files(self) -> None:
+        if self._overseer_hides_chat():
+            return
         paths, _ = QFileDialog.getOpenFileNames(
             self,
             "Attach files for Arelis",
@@ -1158,6 +1164,8 @@ class ConversationStage(GlassFrame):
         """
         text = text.strip()
         if not text:
+            return
+        if self._overseer_hides_chat():
             return
         existing = self.input.text().strip()
         self.input.setText(f"{existing} {text}".strip() if existing else text)

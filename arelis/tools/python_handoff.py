@@ -63,6 +63,8 @@ _WRITE_CALLS = frozenset(
         "rmdir",
         "touch",
         "move",
+        "save",
+        "load_workbook",
     }
 )
 _ABS_PATH = re.compile(
@@ -171,7 +173,7 @@ def _needs_run_script_text(source: str) -> bool:
     ):
         return True
     if _ABS_PATH.search(source) and re.search(
-        r"(?i)\b(?:open|write_text|to_csv|to_excel|savefig)\s*\(",
+        r"(?i)\b(?:open|write_text|to_csv|to_excel|savefig|save|load_workbook)\s*\(",
         source,
     ):
         return True
