@@ -20,6 +20,8 @@ Notes: [v0.3.4](releases/v0.3.4.md). Older:
 - Chat history: conversations are saved as she writes, so a crash or Stop mid-reply keeps the words already on screen. History search looks through message text in every saved chat, not only recent titles. Open History (Ctrl+Shift+F) to find an earlier conversation and click it to reopen the whole thread. Starting the app still opens a new chat; yesterday's thread stays in History. See [chat-history.md](chat-history.md).
 - Sentinels: "Stand down those 3 Harvesters" now retires exactly 3 and leaves the rest, and the reply says how many were retired. Asking to stand down a whole caste still retires every unit of it. See [sentinels.md](sentinels.md).
 
+- Sentinels: chat is hidden and disabled while the Overseer is open, including the composer and per-token painting, and comes back for the current theme when the Overseer closes, including a reply that arrived while it was open. Screen readers see it as hidden or disabled. See [sentinels.md](sentinels.md).
+
 - Voice: talking over her with "Stop. What's two plus two?" is now heard as one question, including "Stop.". The ear uses a small beam and a "plus" hint so "plus" is less likely to come back as "Please"; if it still does, that wording is repaired. Spoken replies skip the thinking pause, so the first sentence can start as soon as it is ready, including after a tool such as weather. See [voice-wake.md](voice-wake.md).
 
 - Sentinels: in the Overseer, idle units now circle the core on tilted bands, one per caste, that split into more lanes and widen as the swarm grows (up to 128 units). Tripwires ride the outer edge ring. See [sentinels.md](sentinels.md).

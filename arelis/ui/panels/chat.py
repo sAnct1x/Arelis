@@ -434,13 +434,17 @@ class ChatPanel(QWidget):
 
         cancel_transcript_fade(self.view, restore=False)
 
+    def _show_transcript(self) -> None:
+        """Hide the empty face and show the transcript. The parked path skips this."""
+        self.empty.hide()
+        self.view.show()
+
     def _ensure_view(self) -> None:
         if not self._has_messages:
             self._has_messages = True
             if self._view_parked:
                 return
-            self.empty.hide()
-            self.view.show()
+            self._show_transcript()
 
     def set_view_parked(self, parked: bool) -> None:
         """Filament with the chat tile closed: the transcript stays off the main window.
@@ -448,10 +452,15 @@ class ChatPanel(QWidget):
         The panel still holds her voice mark there, but the view (the transcript) belongs on
         the tile. Shown, a streamed reply painted over the tree and every token repainted and
         recomposed the window. Parked, the document still fills and the tile opens on it.
+        Unparking re-runs the same show path _ensure_view uses, so a first message
+        that arrived while parked becomes visible.
         """
         self._view_parked = bool(parked)
         if self._view_parked:
             self.view.hide()
+            return
+        if self._has_messages:
+            self._show_transcript()
 
     def mark_turn(self, busy: bool) -> None:
         self._turn_busy = bool(busy)

@@ -4,7 +4,8 @@ Hosts the bridge's Overseer in a QWebEngineView. The session token rides in
 the URL fragment and is never logged. When the Sentinel child is down the
 window shows "Sentinel offline" with a Start button. Theme colours follow
 the active Arelis theme. Opening fades Arelis and the orbit tree to 20
-percent; close, quit, or an error restores them.
+percent and hides and disables chat; close, quit, or an error restores
+the fade, and closing the window restores chat.
 """
 
 from __future__ import annotations
@@ -29,7 +30,13 @@ from shiboken6 import isValid
 
 from arelis import sentinel_control
 from arelis.ui import overseer_runtime
-from arelis.ui.sentinel_presence import PresenceController, inset_geometry, mote_pos
+from arelis.ui.sentinel_presence import (
+    PresenceController,
+    inset_geometry,
+    mote_pos,
+    restore_chat_after_overseer,
+    suspend_chat_for_overseer,
+)
 from arelis.ui.theme_tokens import COLORS, active_theme
 
 log = logging.getLogger(__name__)
@@ -848,6 +855,7 @@ class SentinelWindow(QWidget):
         surface = getattr(owner, "_quick_surface", None)
         self.presence.open_window(reduced=_reduced_motion())
         self.presence.apply_to(surface)
+        suspend_chat_for_overseer(owner)
         mote = getattr(owner, "sentinel_mote", None)
         if mote is not None:
             mote.hide()
@@ -879,6 +887,7 @@ class SentinelWindow(QWidget):
         self._mask_timer.stop()
         if self.presence.open:
             self._restore_presence("close")
+        restore_chat_after_overseer(self._owner)
         super().closeEvent(event)
 
     def hideEvent(self, event) -> None:
@@ -909,6 +918,7 @@ def teardown_sentinel_window(window) -> None:
     win._mask_timer.stop()
     win._entry_timer.stop()
     win._restore_presence("quit")
+    restore_chat_after_overseer(window)
     if win._view is not None:
         win._view.setUrl(QUrl("about:blank"))
     win.close()
