@@ -20,7 +20,8 @@ Sodium, or Filament). While it is open, Arelis and the orbit tree fade
 to about 20 percent, and chat (the composer and the transcript) is hidden
 and disabled so the window is free for the Overseer. Closing it, quitting
 Arelis, or an error that cannot show the page restores the fade; chat
-comes back when the window closes. Esc or the close mote on the inset
+comes back for the current theme when the window closes, including a
+reply that arrived while it was open. Esc or the close mote on the inset
 closes it. The close mote is drawn inside the 3D scene, top right; Tab reaches
 it and Enter or Space presses it.
 Closing the window saves the scene's compiled shaders to

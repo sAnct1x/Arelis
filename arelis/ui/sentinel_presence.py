@@ -90,45 +90,113 @@ def _chat_suspend_targets(owner: Any) -> list[Any]:
     return unique
 
 
-def suspend_chat_for_overseer(owner: Any) -> None:
-    """Hide and disable the main-window chat, and park per-token painting."""
-    if owner is None or getattr(owner, "_overseer_chat_suspend", None) is not None:
-        return
+def _chat_shortcuts(owner: Any) -> list[Any]:
+    """Composer shortcuts, including the application-wide attach chord."""
+    from PySide6.QtGui import QShortcut
+
+    conv = getattr(owner, "conversation", None)
+    if conv is None:
+        return []
+    return list(conv.findChildren(QShortcut))
+
+
+def _snapshot_chat_for_overseer(owner: Any) -> dict[str, Any]:
+    targets = _chat_suspend_targets(owner)
+    return {
+        "widgets": [(w, w.isHidden(), w.isEnabled()) for w in targets],
+        "shortcuts": [(s, s.isEnabled()) for s in _chat_shortcuts(owner)],
+    }
+
+
+def _apply_chat_suspend(owner: Any) -> None:
+    """Hide, disable, and park chat, and ignore its shortcuts, while the window is open."""
     conv = getattr(owner, "conversation", None)
     chat = getattr(conv, "chat", None) if conv is not None else None
-    targets = _chat_suspend_targets(owner)
-    snapshot = [(w, w.isHidden(), w.isEnabled()) for w in targets]
-    parked = bool(getattr(chat, "_view_parked", False)) if chat is not None else False
-    owner._overseer_chat_suspend = {"widgets": snapshot, "view_parked": parked}
     if chat is not None:
         chat.set_view_parked(True)
-    for widget in targets:
+    for widget in _chat_suspend_targets(owner):
         clearer = getattr(widget, "clearFocus", None)
         if callable(clearer):
             clearer()
         widget.setEnabled(False)
         widget.hide()
+    for shortcut in _chat_shortcuts(owner):
+        shortcut.setEnabled(False)
+
+
+def suspend_chat_for_overseer(owner: Any) -> None:
+    """Hide and disable the main-window chat, and park per-token painting.
+
+    A theme switch while the Overseer is still open can show chat again.
+    Calling this a second time re-applies the hide without replacing the
+    first snapshot, whose enabled flags are what close restores.
+    """
+    if owner is None:
+        return
+    if getattr(owner, "_overseer_chat_suspend", None) is None:
+        owner._overseer_chat_suspend = _snapshot_chat_for_overseer(owner)
+    _apply_chat_suspend(owner)
 
 
 def restore_chat_after_overseer(owner: Any) -> None:
-    """Put the chat back exactly as it was before the Overseer opened."""
+    """Show chat again from the current messages and theme, not the pre-open snapshot."""
     if owner is None:
         return
     snap = getattr(owner, "_overseer_chat_suspend", None)
     if not snap:
         return
     owner._overseer_chat_suspend = None
-    conv = getattr(owner, "conversation", None)
-    chat = getattr(conv, "chat", None) if conv is not None else None
-    if chat is not None:
-        chat.set_view_parked(bool(snap.get("view_parked")))
     from shiboken6 import isValid
 
-    for widget, hidden, enabled in snap.get("widgets") or []:
+    for widget, _hidden, enabled in snap.get("widgets") or []:
         if widget is None or not isValid(widget):
             continue
         widget.setEnabled(enabled)
-        widget.setVisible(not hidden)
+    for shortcut, enabled in snap.get("shortcuts") or []:
+        if shortcut is None or not isValid(shortcut):
+            continue
+        shortcut.setEnabled(enabled)
+
+    conv = getattr(owner, "conversation", None)
+    # Isolated Overseer tests use a bare QWidget as the owner. There is no
+    # chat to rebuild, and the idle-layout path needs a real main window.
+    if conv is None or not hasattr(owner, "chat"):
+        return
+    conv.show()
+    sync = getattr(conv, "_sync_composer_buttons", None)
+    if callable(sync):
+        sync()
+
+    from arelis.ui.theme import active_theme
+
+    filament = active_theme() == "filament"
+    chat_open = bool(getattr(owner, "_filament_chat_open", False)) if filament else False
+    chat = getattr(conv, "chat", None) if conv is not None else None
+    # Stay parked through the normal layout pass so a first message does
+    # not paint on the field until unpark re-runs the show path below.
+    if chat is not None and not filament:
+        chat.show()
+    if not filament and conv is not None:
+        composer = getattr(conv, "_composer", None)
+        if composer is not None:
+            composer.show()
+        for name in ("input", "send_btn"):
+            widget = getattr(conv, name, None)
+            if widget is not None:
+                widget.show()
+    tile = getattr(owner, "_filament_chat_tile", None)
+    if tile is not None:
+        if filament and chat_open:
+            tile.show()
+        else:
+            tile.hide()
+    from arelis.ui.idle_host import sync_idle_mode
+
+    sync_idle_mode(owner)
+    if chat is not None:
+        # Unparking re-runs the normal show path. Filament with the tile
+        # closed stays parked so the transcript does not land on the field.
+        chat.set_view_parked(filament and not chat_open)
 
 
 class PresenceController:

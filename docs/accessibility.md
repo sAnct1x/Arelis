@@ -7,5 +7,6 @@ and Deny; activating them allows or denies that step.
 
 While the Overseer is open, the chat composer and transcript are hidden
 and disabled, so a screen reader or UI Automation client sees them as
-hidden or disabled and cannot send from them. They return to their
-previous state when the Overseer closes.
+hidden or disabled and cannot send from them. When the Overseer closes,
+chat comes back for the current theme: a reply that arrived while it was
+open is visible, and in Filament the transcript stays on the chat tile.

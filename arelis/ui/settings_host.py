@@ -353,6 +353,10 @@ def _apply_window_theme(window, theme_id: str, *, persist: bool, trace=None) -> 
             sync()
         finally:
             window._theme_trace = None
+    if getattr(window, "_overseer_chat_suspend", None) is not None:
+        from arelis.ui.sentinel_presence import suspend_chat_for_overseer
+
+        suspend_chat_for_overseer(window)
     window.update()
     if trace is not None:
         trace.mark("layout")

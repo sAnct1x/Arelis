@@ -17,7 +17,7 @@ Notes: [v0.3.4](releases/v0.3.4.md). Older:
 
 ## 0.3.5 (in progress)
 
-- Sentinels: chat is hidden and disabled while the Overseer is open, including the composer and per-token painting, and comes back as it was when the Overseer closes. Screen readers see it as hidden or disabled. See [sentinels.md](sentinels.md).
+- Sentinels: chat is hidden and disabled while the Overseer is open, including the composer and per-token painting, and comes back for the current theme when the Overseer closes, including a reply that arrived while it was open. Screen readers see it as hidden or disabled. See [sentinels.md](sentinels.md).
 
 - Voice: talking over her with "Stop. What's two plus two?" is now heard as one question, including "Stop.". The ear uses a small beam and a "plus" hint so "plus" is less likely to come back as "Please"; if it still does, that wording is repaired. Spoken replies skip the thinking pause, so the first sentence can start as soon as it is ready, including after a tool such as weather. See [voice-wake.md](voice-wake.md).
 
