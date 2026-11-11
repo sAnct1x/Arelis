@@ -262,6 +262,124 @@ def ensure_server(base_url: str, args: list[str] | None) -> None:
             raise RuntimeError(_SLOW)
 
 
+def stop_server(base_url: str = "http://127.0.0.1:8080", *, timeout_s: float = 8.0) -> bool:
+    """Stop llama-server so another GPU job can use the card.
+
+    Stops the process Arelis started, then a leftover listener on that
+    local port only. Launch arguments are not changed. Returns True if a
+    process was stopped.
+    """
+    stopped = False
+    with _lock:
+        global _proc
+        proc = _proc
+        _proc = None
+        if proc is not None and proc.poll() is None:
+            log.info("Stopping llama-server (pid=%s) to free the GPU", proc.pid)
+            stopped = _terminate_proc(proc, timeout_s=timeout_s) or stopped
+    host, port = _listen(base_url)
+    if host not in {"127.0.0.1", "localhost", "::1"}:
+        return stopped
+    if not _health_ok(base_url):
+        return stopped
+    return _kill_local_port(port) or stopped
+
+
+def start_server_nowait(base_url: str, args: list[str] | None) -> None:
+    """Spawn llama-server if the chat port is down. Do not wait for ready.
+
+    Used when the app is quitting and must not leave chat dead, but also
+    must not block on a full model load.
+    """
+    if not args:
+        return
+    with _lock:
+        if _health_ok(base_url):
+            return
+        global _proc
+        if _proc is not None and _proc.poll() is None:
+            return
+        _proc = _spawn(args)
+
+
+def _terminate_proc(proc: subprocess.Popen[bytes], *, timeout_s: float) -> bool:
+    try:
+        proc.terminate()
+        try:
+            proc.wait(timeout=max(1.0, float(timeout_s)))
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=3)
+    except Exception:
+        log.warning(
+            "Could not stop llama-server pid %s",
+            getattr(proc, "pid", "?"),
+            exc_info=True,
+        )
+        return False
+    return True
+
+
+def _kill_local_port(port: int) -> bool:
+    """Terminate listeners on a loopback port."""
+    if port <= 0 or port > 65535:
+        return False
+    pids = _pids_on_port(port)
+    if not pids:
+        return False
+    self_pid = os.getpid()
+    killed = False
+    for pid in pids:
+        if pid <= 0 or pid == self_pid:
+            continue
+        log.info("Stopping leftover llama-server listener pid=%s port=%s", pid, port)
+        if _terminate_pid(pid):
+            killed = True
+    return killed
+
+
+def _pids_on_port(port: int) -> list[int]:
+    try:
+        import psutil
+    except ImportError:
+        return []
+    pids: list[int] = []
+    try:
+        for conn in psutil.net_connections(kind="tcp"):
+            laddr = getattr(conn, "laddr", None)
+            if laddr is None:
+                continue
+            if int(getattr(laddr, "port", 0) or 0) != int(port):
+                continue
+            status = str(getattr(conn, "status", "") or "").upper()
+            if status not in {"LISTEN", "NONE"}:
+                continue
+            pid = getattr(conn, "pid", None)
+            if pid:
+                pids.append(int(pid))
+    except Exception:
+        log.warning("Could not list listeners on port %s", port, exc_info=True)
+        return []
+    return pids
+
+
+def _terminate_pid(pid: int) -> bool:
+    try:
+        import psutil
+
+        proc = psutil.Process(pid)
+        proc.terminate()
+        try:
+            proc.wait(timeout=8)
+        except psutil.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=3)
+        return True
+    except Exception:
+        log.warning("Could not stop pid %s", pid, exc_info=True)
+        return False
+
+
 def _launch_args_for(config: dict[str, Any]) -> list[str] | None:
     model = locate_model_gguf(config)
     if model is None:
