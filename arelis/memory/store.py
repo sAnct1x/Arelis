@@ -809,6 +809,9 @@ class MemoryStore:
     ) -> list[dict[str, Any]]:
         return facts.list_decisions(self, project, limit)
 
+    def list_all_decisions(self, *, limit: int = 100) -> list[dict[str, Any]]:
+        return facts.list_all_decisions(self, limit=limit)
+
     def add_episode(
         self,
         summary: str,

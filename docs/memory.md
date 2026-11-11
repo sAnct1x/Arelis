@@ -25,3 +25,13 @@ Older facts that were waiting for a click under History are kept and shown
 here, including ones that were worded almost the same as a fact she already
 had. A leftover wording of something you already forgot or declined stays
 forgotten.
+
+## How she uses those facts in a chat
+
+Each time you send a message, she pulls a small ranked set of memories that
+are relevant to that ask: durable facts, plus any preferences or decisions
+that also match. Unrelated memories stay out of the prompt, even if she has
+many of them. The block is capped at 6 memories and 800 characters.
+
+The full list still lives under Settings, memory. If she does not bring up
+something you expected, check that list, or ask her to remember it.
