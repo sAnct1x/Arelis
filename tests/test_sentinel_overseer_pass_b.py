@@ -6,9 +6,9 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QPoint, QPointF, Qt, QUrl
+from PySide6.QtCore import QObject, QPoint, QPointF, QSizeF, Qt, QUrl
 from PySide6.QtGui import QFont
-from PySide6.QtQml import QQmlComponent, QQmlEngine
+from PySide6.QtQml import QQmlComponent, QQmlEngine, QQmlProperty
 
 from arelis.llm import token_meter
 from arelis.ui import overseer_runtime
@@ -28,14 +28,20 @@ def _texts(item) -> list[str]:
 
 
 def _hud(qt_app, width: int = 2110, height: int = 1306):
+    from arelis.ui import theme
+    theme.load_fonts()
     engine = QQmlEngine()
     engine.addImportPath(str(ASSETS))
     comp = QQmlComponent(engine, QUrl.fromLocalFile(str(ASSETS / "OverseerHud.qml")))
     hud = comp.create()
     assert hud is not None, "; ".join(e.toString() for e in comp.errors())
-    hud.setProperty("width", width)
-    hud.setProperty("height", height)
+    # Reset fill so an unparented or offscreen default (1024 on Windows)
+    # cannot override the official 2110 x 1306 layout.
+    assert QQmlProperty(hud, "anchors.fill").reset()
+    hud.setSize(QSizeF(width, height))
     qt_app.processEvents()
+    assert hud.property("width") == width
+    assert hud.property("height") == height
     return (engine, comp), hud
 
 
@@ -64,12 +70,23 @@ def test_header_summary_line_carries_every_strip_number(qt_app) -> None:
         title = hud.findChild(QObject, "OverseerTitle")
         assert _texts(title)[0] == "Sentinels"
         assert title.childItems()[0].property("color").name() == "#e8dcfb"
-        line = " ".join(_texts(hud.findChild(QObject, "OverseerSummary")))
-        assert line == (
+        expected = (
             "3 units ·  1 fetching ·  0 threats ·  2 Wardens patrolling · 1 engaged ·  "
             "238 warrants ·  last 13:25:40 Tripwire verify, ok ·  "
             "hive live · all local · sending out blocked"
         )
+        line = " ".join(_texts(hud.findChild(QObject, "OverseerSummary")))
+        assert line == expected
+        # A wide 34 px face at 2110 px overflows a fixed 14 px line and, on
+        # Windows, the software-renderer fallback stops at "238 warrants".
+        # The line must shrink to keep every number, then drop from the
+        # right only when the window itself is narrow.
+        hud.setProperty("summaryBaseSize", 34)
+        qt_app.processEvents()
+        line = " ".join(_texts(hud.findChild(QObject, "OverseerSummary")))
+        assert line == expected
+        hud.setProperty("summaryBaseSize", 14)
+        qt_app.processEvents()
         assert hud.findChild(QObject, "OverseerStatusStrip") is None
         warrants = hud.findChild(QObject, "OverseerStrip_warrants")
         assert warrants.property("color").name() == "#cdb2f7"

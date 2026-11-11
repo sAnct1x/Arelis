@@ -4,6 +4,10 @@ import QtQuick.Controls
 Item {
     id: hud
     objectName: "OverseerHud"
+    // Fill the view when parented. Isolated tests that need a fixed
+    // official size must reset anchors.fill first; leaving it bound can
+    // pin the width to the offscreen default (1024 on Windows) and drop
+    // the last summary numbers.
     anchors.fill: parent
 
     property var pills: ({})
@@ -98,9 +102,10 @@ Item {
         property int index: 0
         property string body: ""
         color: "#cdb2f7"
-        font.family: "Zen Kaku Gothic New"
-        font.pixelSize: 14
+        font.family: hud.titleFamily
+        font.pixelSize: summary.pieceSize
         text: (index === 0 ? "" : "·  ") + body
+        onTextChanged: summary.refit()
     }
 
     readonly property var casteOrder: [
@@ -199,8 +204,29 @@ Item {
     // summary line that carries every number the old status strip showed.
     // Pieces drop from the right when the line would run into Emergency stop;
     // the tooltip and Accessible description always carry the full line.
-    readonly property string titleFamily: "Zen Kaku Gothic New"
-    readonly property string monoFamily: "Space Mono"
+    FontLoader {
+        id: zenKakuRegular
+        source: Qt.resolvedUrl("../../../ui/fonts/ZenKakuGothicNew-Regular.ttf")
+    }
+    FontLoader {
+        id: zenKakuMedium
+        source: Qt.resolvedUrl("../../../ui/fonts/ZenKakuGothicNew-Medium.ttf")
+    }
+    FontLoader {
+        id: spaceMonoRegular
+        source: Qt.resolvedUrl("../../../ui/fonts/SpaceMono-Regular.ttf")
+    }
+    readonly property string titleFamily: zenKakuRegular.status === FontLoader.Ready
+                                          ? zenKakuRegular.name : "Zen Kaku Gothic New"
+    readonly property string titleMediumFamily: zenKakuMedium.status === FontLoader.Ready
+                                                ? zenKakuMedium.name : titleFamily
+    readonly property string monoFamily: spaceMonoRegular.status === FontLoader.Ready
+                                         ? spaceMonoRegular.name : "Space Mono"
+    // Starting pixel size for the summary line. The line shrinks as far as
+    // summaryMinSize so every number still fits at the official width when
+    // the face is wider (Windows software renderer, missing desk face).
+    property int summaryBaseSize: 14
+    property int summaryMinSize: 12
     // Tokens per second from the local model; 0 while nothing streams.
     property int tokRate: 0
     property bool coreMode: false
@@ -263,7 +289,7 @@ Item {
             Text {
                 text: "Sentinels"
                 color: "#e8dcfb"
-                font.family: hud.titleFamily
+                font.family: hud.titleMediumFamily
                 font.pixelSize: 28
                 font.weight: Font.Medium
             }
@@ -274,13 +300,45 @@ Item {
                 readonly property real room: coreButton.x - 24
                 readonly property var pieces: [unitsPiece, fetchPiece, threatsPiece, defendersPiece,
                                                warrantsPiece, lastEventPiece, healthPiece]
+                property int pieceSize: 14
+                property var pieceWidths: [0, 0, 0, 0, 0, 0, 0]
+                TextMetrics { id: summaryMetrics }
+                function refit() {
+                    var size
+                    for (size = hud.summaryBaseSize; size >= hud.summaryMinSize; size--) {
+                        var ws = []
+                        var total = 0
+                        for (var k = 0; k < pieces.length; k++) {
+                            summaryMetrics.font.family = pieces[k].font.family
+                            summaryMetrics.font.pixelSize = size
+                            summaryMetrics.text = pieces[k].text
+                            ws[k] = summaryMetrics.width
+                            total += ws[k] + (k ? spacing : 0)
+                        }
+                        if (total <= room || size === hud.summaryMinSize) {
+                            pieceWidths = ws
+                            if (pieceSize !== size)
+                                pieceSize = size
+                            return
+                        }
+                    }
+                }
                 function fits(i) {
                     var w = 0
                     for (var k = 0; k <= i; k++)
-                        w += pieces[k].implicitWidth + (k ? spacing : 0)
+                        w += pieceWidths[k] + (k ? spacing : 0)
                     return w <= room
                 }
                 spacing: 6
+                onRoomChanged: refit()
+                Component.onCompleted: refit()
+                Connections {
+                    target: hud
+                    function onPillsChanged() { summary.refit() }
+                    function onStatusLineChanged() { summary.refit() }
+                    function onSummaryBaseSizeChanged() { summary.refit() }
+                    function onTitleFamilyChanged() { summary.refit() }
+                }
                 Accessible.role: Accessible.StaticText
                 Accessible.name: "Summary"
                 Accessible.description: hud.summaryText()

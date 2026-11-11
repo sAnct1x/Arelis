@@ -16,6 +16,7 @@ def test_velocity_avoidance_holds_gap_without_position_snapping() -> None:
     rec_dock = []
     worst_pairs = 0.0
     touch_1236: list[float] = []
+    present_minus_raw: list[float] = []
     # Ctor already warms ~3 s. Run through t=36 so the official window is scored.
     while sim.t < 36.0 - 1e-9:
         before = sim.p.copy()
@@ -23,9 +24,11 @@ def test_velocity_avoidance_holds_gap_without_position_snapping() -> None:
         rec.append(sim.present()[0].copy())
         rec_dock.append(sim.docked.copy())
         st = sim.overlap_stats()
+        st_raw = sim.overlap_stats(False)
         worst_pairs = max(worst_pairs, float(st["touching_pairs"]))
         if 12.0 <= sim.t <= 36.0:
             touch_1236.append(float(st["touching"]))
+            present_minus_raw.append(float(st["touching"]) - float(st_raw["touching"]))
         moved = float(np.linalg.norm(sim.p - before, axis=1).max())
         # Integration plus the 0.05 m safety net, not a multi-metre snap.
         vmax = max(ff.CASTES[c]["vmax"] for c in sim.caste)
@@ -37,6 +40,13 @@ def test_velocity_avoidance_holds_gap_without_position_snapping() -> None:
     med = float(np.median(touch_1236))
     worst = float(max(touch_1236))
     assert med < 0.08 and worst <= 0.15, (med, worst)
+    # Without catch-up, the 0.25 s damper can show 0.10 more units touching
+    # than the sim on the same frame (Linux official worst 0.15 sits on a
+    # 0.07 raw frame). That leftover display overlap is the Windows (0.07,
+    # 0.17) failure: the 0.15 cap had no margin. Catch-up keeps the excess
+    # at 0.05 on Linux.
+    assert present_minus_raw, "expected samples in the t 12-36 window"
+    assert max(present_minus_raw) <= 0.07, max(present_minus_raw)
     jit = ff.jitter_shares(
         {"present_p": rec, "p": rec, "docked": rec_dock},
         sim.caste,

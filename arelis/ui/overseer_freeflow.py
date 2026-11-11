@@ -991,9 +991,39 @@ class Sim:
         out[hit] = np.arctan2(nz[hit], nx[hit])
         return out
 
+    def _catch_present_overlaps(self, cap=0.10):
+        """Walk lagged presented poses toward the sim when they overlap.
+
+        The 0.25 s damper can show a tighter capsule gap than the velocity
+        solver just held (on Linux, 0.15 touching on a 0.07 raw frame). That
+        leftover display overlap is what filled the official 0.15 cap and
+        left no margin for Windows. The sim is not moved.
+        """
+        par = [CASTES[c] for c in self.caste]
+        sc = np.array([C["scale"] for C in par]) * SCALE_K
+        saved = self.p.copy()
+        self.p = self.smoother.x
+        X, RAD = self.spine(sc)
+        live = ~self.docked
+        I, J, g, _ = cap_pairs(X, RAD, self.p, live, GAP_MIN + 8.0)
+        self.p = saved
+        if len(I) == 0:
+            return
+        hit = set(I[g < 0.0].tolist() + J[g < 0.0].tolist())
+        if not hit:
+            return
+        idx = np.array(sorted(hit))
+        delta = saved[idx] - self.smoother.x[idx]
+        dist = np.linalg.norm(delta, axis=1, keepdims=True)
+        step = delta * np.minimum(1.0, cap / (dist + 1e-12))
+        self.smoother.x[idx] = self.smoother.x[idx] + step
+        self.smoother.v[idx] *= 0.3
+
     def present(self, dt=DT):
         yaw = np.arctan2(self.face[:, 2], self.face[:, 0])
         p, yaw = self.smoother.step(self.p, yaw, dt)
+        self._catch_present_overlaps()
+        p = self.smoother.x.copy()
         # Cone is the last clamp on presented yaw, after 0.25 s smoothing, so
         # the damper cannot pull a silhouette back through screen-vertical.
         return p, self._clamp_present_yaw(p, yaw)
