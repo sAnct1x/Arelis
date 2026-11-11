@@ -43,24 +43,45 @@ def filter_history_sessions(
 ) -> list[Mapping[str, Any]]:
     """Keep sessions whose title/date or archived body matches ``query``.
 
-    ``store.search`` is the FTS/LIKE path (do not invent a second index).
-    ``search`` is a compatible override for tests. Empty query = current list.
+    When ``store`` is set, ``store.search_sessions`` looks through the whole
+    archive (FTS5 when available) so a match is not limited to the 100-row
+    History list. ``search`` is a compatible override for tests that still
+    filters the provided list. Empty query = current list.
     """
     needle = query.strip()
     if not needle:
         return list(sessions)
+    lowered = needle.lower()
+    rows: list[Mapping[str, Any]] = []
+    seen: set[str] = set()
+
+    def _title_or_date_match(session: Mapping[str, Any]) -> bool:
+        title = _display_session_title(str(session.get("title") or ""))
+        started = _format_when(str(session.get("started_at") or ""))
+        hay = f"{title} {started}".lower()
+        return lowered in hay
+
+    if search is None and store is not None and hasattr(store, "search_sessions"):
+        for session in store.search_sessions(needle, limit=_BODY_SEARCH_LIMIT):
+            sid = str(session.get("id") or "")
+            if not sid or sid in seen:
+                continue
+            seen.add(sid)
+            rows.append(session)
+        for session in sessions:
+            sid = str(session.get("id") or "")
+            if sid and sid not in seen and _title_or_date_match(session):
+                seen.add(sid)
+                rows.append(session)
+        return rows
+
     finder = search
     if finder is None and store is not None:
         finder = partial(store.search, limit=_BODY_SEARCH_LIMIT)
     body_ids = _session_ids_from_hits(finder(needle) if finder is not None else ())
-    lowered = needle.lower()
-    rows: list[Mapping[str, Any]] = []
     for session in sessions:
-        title = _display_session_title(str(session.get("title") or ""))
-        started = _format_when(str(session.get("started_at") or ""))
-        hay = f"{title} {started}".lower()
         sid = str(session.get("id") or "")
-        if lowered in hay or sid in body_ids:
+        if _title_or_date_match(session) or sid in body_ids:
             rows.append(session)
     return rows
 
@@ -300,7 +321,11 @@ class HistoryPanel(QWidget):
         empty = not rows
         self.empty_hint.setVisible(empty)
         if empty:
-            self.empty_hint.setText("nothing matches" if needle else "nothing here yet")
+            self.empty_hint.setText(
+                "nothing matches"
+                if needle
+                else "Chats you have with her will appear here."
+            )
         if fingerprint == self._list_fp and self.list.count() == len(rows):
             self.set_active(self._active_id)
             return
@@ -337,11 +362,18 @@ class HistoryPanel(QWidget):
             return
         title = ""
         pinned = False
+        found: dict[str, Any] | Mapping[str, Any] | None = None
         for session in self._sessions:
             if str(session.get("id") or "") == sid:
-                title = _display_session_title(str(session.get("title") or ""))
-                pinned = bool(session.get("pinned"))
+                found = session
                 break
+        if found is None and self._store is not None:
+            getter = getattr(self._store, "get_session", None)
+            if callable(getter):
+                found = getter(sid)
+        if found is not None:
+            title = _display_session_title(str(found.get("title") or ""))
+            pinned = bool(found.get("pinned"))
         menu = QMenu(self)
         open_act = QAction("Open", menu)
         pin_act = QAction("Unpin" if pinned else "Pin", menu)
