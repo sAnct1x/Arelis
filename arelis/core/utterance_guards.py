@@ -371,7 +371,11 @@ def looks_like_image_gen(text: str) -> bool:
         return True
     if wants_image_edit(check):
         return False
-    return bool(_IMAGE_GEN.search(check))
+    # "do not make a new picture" still matched "make a new picture" and
+    # preflight then told the model to call the image tool.
+    from arelis.core.intent_catalog import first_unnegated
+
+    return first_unnegated(_IMAGE_GEN, check) is not None
 
 
 def looks_like_browser_or_url(text: str) -> bool:

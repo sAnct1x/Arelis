@@ -1067,7 +1067,7 @@ async def execute_call(
             and not loop._fail_replan_used
         ):
             replan = tool_fail_replan_notice(
-                name, redacted, ok=False
+                name, redacted, ok=False, config=getattr(loop, "config", None)
             )
             if replan:
                 loop._fail_replan_used = True

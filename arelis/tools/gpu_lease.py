@@ -9,9 +9,11 @@ knows how to start, then starts it again with the same launch arguments.
 from __future__ import annotations
 
 import atexit
+import json
 import logging
 import threading
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
+from pathlib import Path
 from typing import Any
 
 log = logging.getLogger(__name__)
@@ -40,6 +42,9 @@ _config: dict[str, Any] | None = None
 _idle_timer: threading.Timer | None = None
 _atexit_registered = False
 _status: StatusFn | None = None
+_marker_path: Path | None = None
+_restore_warmup: Callable[[], Awaitable[None]] | None = None
+_needs_warmup = False
 # Injected in tests.
 _stop_fn: Callable[[str], bool] | None = None
 _ensure_fn: Callable[[str, list[str] | None], None] | None = None
@@ -165,6 +170,11 @@ def acquire(config: dict[str, Any] | None = None) -> None:
         raise
     with _lock:
         _stopped_server = bool(stopped) or _stopped_server
+        held_stop = _stopped_server
+        cfg_now = _config
+        url_now = url
+    if held_stop:
+        _write_marker(cfg_now, url_now)
     _tell(CHAT_PAUSED)
     log.info("Image GPU lease acquired (stopped_server=%s)", stopped)
 
@@ -214,7 +224,7 @@ def _release_safe() -> None:
 
 def release(*, nowait: bool = False) -> None:
     """Start llama-server again if this lease stopped it. Always clears the hold."""
-    global _held, _generating, _stopped_server, _config
+    global _held, _generating, _stopped_server, _config, _needs_warmup
     with _lock:
         _cancel_idle()
         if not _held:
@@ -237,8 +247,12 @@ def release(*, nowait: bool = False) -> None:
     try:
         if nowait:
             _nowait(url, args)
+            if _server_up(url):
+                _clear_marker()
         else:
             _ensure(url, args, cfg)
+            _clear_marker()
+            _needs_warmup = True
         log.info("Image GPU lease released (nowait=%s)", nowait)
     except Exception:
         log.warning("Image GPU lease failed to restore llama-server", exc_info=True)
@@ -312,6 +326,7 @@ def reset_for_tests(
     """Clear lease state and optionally install fakes. Tests only."""
     global _held, _generating, _stopped_server, _config
     global _stop_fn, _ensure_fn, _nowait_fn, _args_fn, _status
+    global _restore_warmup, _needs_warmup, _marker_path
     with _lock:
         _cancel_idle()
         _held = False
@@ -323,3 +338,144 @@ def reset_for_tests(
         _nowait_fn = nowait
         _args_fn = args
         _status = None
+        _restore_warmup = None
+        _needs_warmup = False
+        _marker_path = None
+
+
+def set_marker_path(path: Path | None) -> None:
+    """Tests only: write the lease marker to a temp file."""
+    global _marker_path
+    _marker_path = path
+
+
+def marker_path() -> Path:
+    if _marker_path is not None:
+        return _marker_path
+    from arelis.paths import state_dir
+
+    return state_dir() / "gpu-lease.json"
+
+
+def set_restore_warmup(fn: Callable[[], Awaitable[None]] | None) -> None:
+    """Called after a blocking restore so chat can re-prefill the prompt cache."""
+    global _restore_warmup
+    _restore_warmup = fn
+
+
+def take_needs_warmup() -> bool:
+    """True once after a restore that brought llama-server back on this loop."""
+    global _needs_warmup
+    flag = _needs_warmup
+    _needs_warmup = False
+    return flag
+
+
+async def run_restore_warmup() -> None:
+    fn = _restore_warmup
+    if fn is None:
+        return
+    try:
+        await fn()
+    except Exception:
+        # A failed seed only means the next turn prefills cold, as before.
+        log.warning("Could not reseed the chat cache after a picture", exc_info=True)
+
+
+def _server_up(base_url: str) -> bool:
+    try:
+        from arelis.llm.llama_launch import _health_ok
+
+        return bool(_health_ok(base_url))
+    except Exception:
+        # A down or unreadable port is treated as not up, so restore can run.
+        return False
+
+
+def _write_marker(config: dict[str, Any] | None, base_url: str) -> None:
+    import os
+
+    # Tests must opt in with set_marker_path so a suite run cannot rewrite
+    # the user's leftover-lease marker.
+    if _marker_path is None and os.environ.get("PYTEST_CURRENT_TEST"):
+        return
+    args = _launch_args(config)
+    if not args:
+        return
+    cwd = None
+    try:
+        from arelis.llm.llama_launch import restore_cwd
+
+        cwd = restore_cwd()
+    except Exception:
+        # cwd is optional; the saved command can still start from a default folder.
+        cwd = None
+    payload = {"args": list(args), "cwd": cwd, "base_url": base_url}
+    path = marker_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(json.dumps(payload), encoding="utf-8")
+        tmp.replace(path)
+    except OSError:
+        log.warning("Could not write the GPU lease marker", exc_info=True)
+
+
+def _clear_marker() -> None:
+    path = marker_path()
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        log.warning("Could not clear the GPU lease marker", exc_info=True)
+
+
+def _load_marker() -> dict[str, Any] | None:
+    path = marker_path()
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeError):
+        log.warning("Could not read the GPU lease marker", exc_info=True)
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def recover_paused_server(config: dict[str, Any] | None = None) -> bool:
+    """If a picture left llama-server stopped, start it again on launch.
+
+    A hard kill mid-picture skips quit restore, so the saved command is
+    written to a marker when the lease stops the server, and this replays it
+    when the next Arelis starts and the port is still down.
+    """
+    data = _load_marker()
+    if not data:
+        return False
+    url = str(data.get("base_url") or _base_url(config)).rstrip("/")
+    raw_args = data.get("args")
+    args = [str(item) for item in raw_args] if isinstance(raw_args, list) and raw_args else None
+    cwd = str(data.get("cwd") or "") or None
+    if _server_up(url):
+        _clear_marker()
+        return False
+    if not args:
+        args = _launch_args(config)
+    if not args:
+        log.warning("GPU lease marker has no llama-server command to restore")
+        _tell(CHAT_RESTORE_FAILED)
+        return False
+    try:
+        from arelis.llm.llama_launch import remember_launch
+
+        remember_launch(args, cwd=cwd)
+    except Exception:
+        log.warning("Could not apply the saved llama-server command", exc_info=True)
+    try:
+        _ensure(url, args, config)
+        _clear_marker()
+        log.info("Restored llama-server from a leftover picture lease")
+        return True
+    except Exception:
+        log.warning("Could not restore llama-server from the picture lease marker", exc_info=True)
+        _tell(CHAT_RESTORE_FAILED)
+        return False

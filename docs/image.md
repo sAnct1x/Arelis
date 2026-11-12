@@ -13,18 +13,23 @@ two minutes after chat has been paused.
 The first time you ask for a picture, Arelis downloads about 5 GB of
 model files (Apache-2.0) and a small Windows program (MIT). Files over
 50 MB need an Allow card, even if pictures are set not to ask first in
-Settings. If a download fails or you stop it, unfinished files are
-deleted.
+Settings. The card shows the download size and Allow and Deny in every
+theme, including filament. If a download fails or you stop it, unfinished
+files are deleted.
 
 While a picture is being made, chat is paused so the image model can use
 the graphics card. Chat shows that in plain words: chat is paused while
 the picture is made, usually a couple of minutes, then about a minute to
 bring chat back. When the picture is done, chat shows that it is being
 brought back and starts llama-server again right away, without freezing
-the rest of the app. If chat cannot come back after the picture, a plain
-message says so and asks you to try closing Arelis and opening it again.
+the rest of the app. While chat is coming back, Arelis feeds the current
+conversation to the chat model again so the next message is not a long
+cold wait. If chat cannot come back after the picture, a plain message
+says so and asks you to try closing Arelis and opening it again.
 If the picture program fails, is stopped, or Arelis quits, chat
-is also started again. A message typed while a picture is in progress
+is also started again. If Arelis is closed or killed while a picture is
+being made, the next time you open Arelis it starts the chat model again
+if it was left stopped. A message typed while a picture is in progress
 waits, then is answered after chat is back.
 
 In a narrow chat window (around 380 pixels wide), the message box shrinks

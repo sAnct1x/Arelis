@@ -654,6 +654,10 @@ class ImageTool:
                 await asyncio.to_thread(
                     mark_generation_done, success=success, idle_s=idle_s
                 )
+                from arelis.tools.gpu_lease import run_restore_warmup, take_needs_warmup
+
+                if take_needs_warmup():
+                    await run_restore_warmup()
 
     async def run(self, **kwargs: Any) -> ToolResult:
         prompt = str(kwargs.get("prompt") or "").strip()

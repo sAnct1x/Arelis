@@ -302,6 +302,11 @@ class _GeomRemember(QObject):
         ):
             if getattr(self._widget, "_filament_growing", False):
                 return False
+            # Until a grow (or the user) has placed this tile, its size is the
+            # constructor default (chat is 380x400). Writing that overwrote the
+            # user's saved size in config.local.yaml.
+            if getattr(self._widget, "_filament_placed_geo", None) is None:
+                return False
             self._timer.start()
         return False
 
@@ -312,7 +317,10 @@ class _GeomRemember(QObject):
             return
         if getattr(self._widget, "_filament_growing", False):
             return
-        if self._widget.geometry() == getattr(self._widget, "_filament_placed_geo", None):
+        placed = getattr(self._widget, "_filament_placed_geo", None)
+        if placed is None:
+            return
+        if self._widget.geometry() == placed:
             return
         self._widget._filament_placed_geo = QRect(self._widget.geometry())
         remember_tile_size(self._widget, self._name, self._sizes)

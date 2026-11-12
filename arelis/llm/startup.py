@@ -393,17 +393,69 @@ def seed_messages(prefix: PrefixWarmup) -> list[dict[str, Any]]:
     return [*prefix.messages, {"role": "user", "content": _SEED_QUERY}]
 
 
+async def seed_after_gpu_restore(
+    config: dict[str, Any],
+    router: ModelRouter,
+    bus: EventBus,
+    tools: Any,
+    memory: Any = None,
+) -> int:
+    """Prefill prefix plus chat history after llama-server was started again.
+
+    Saving the slot to disk would need --slot-save-path, which changes the
+    launch command and needs Christopher's OK. This reseeds over HTTP with
+    the exact saved command instead. Returns the estimated token count sent.
+    """
+    prefix = prefix_warmup_for(config, tools)
+    if prefix is None:
+        return 0
+    notes = not bool((config or {}).get("_speak_replies"))
+    history: list[dict[str, Any]] = []
+    if memory is not None:
+        try:
+            history = list(
+                memory.as_chat(include_notes=notes, include_latest_block=True)
+            )
+        except Exception:
+            log.warning("Could not read chat history for the post-picture seed", exc_info=True)
+            history = []
+    messages = list(prefix.messages)
+    messages.extend(history)
+    if not any(str(item.get("role") or "") == "user" for item in messages):
+        messages = seed_messages(prefix)
+    tokens = _prompt_tokens(messages, prefix.tools)
+    await seed_prefix_cache(bus, router, prefix, announce=False, messages=messages)
+    log.info("Seeded %s tokens after picture restore", tokens)
+    return tokens
+
+
+def _prompt_tokens(messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None) -> int:
+    try:
+        from arelis.core.context import message_tokens
+    except Exception:
+        # Token count is only logged; a failed import must not skip the seed.
+        return 0
+    total = sum(message_tokens(item) for item in messages)
+    if tools:
+        # Same estimator as a real turn: tool schemas sit in the prefix.
+        total += message_tokens({"role": "system", "content": str(tools)})
+    return int(total)
+
+
 async def seed_prefix_cache(
     bus: EventBus,
     router: ModelRouter,
     prefix: PrefixWarmup,
     *,
     announce: bool = True,
+    messages: list[dict[str, Any]] | None = None,
 ) -> None:
     """Prefill the static prefix so the next turn reuses it.
 
     ``announce`` is for the startup seed. A mid-session rebuild stays quiet:
     the first-reply line would be wrong in the middle of a chat.
+    ``messages`` overrides the default seed (static prefix plus a dummy user
+    row) so a post-picture restore can include the live chat history.
     """
     model = router.active_model or router.model_for(router.default_role)
     started = time.perf_counter()
@@ -414,7 +466,7 @@ async def seed_prefix_cache(
         # without the cache entry this exists to create.
         stream = router.provider.stream_chat(
             model,
-            seed_messages(prefix),
+            list(messages) if messages is not None else seed_messages(prefix),
             tools=prefix.tools,
             keep_alive=router.default_keep_alive,
             options={"num_ctx": prefix.num_ctx, "num_predict": 1},

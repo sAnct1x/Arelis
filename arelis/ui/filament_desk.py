@@ -869,11 +869,29 @@ class FilamentDesk:
         if self.window._filament_chat_open:
             self._filament_set_chat_open(False)
 
+    def _filament_mount_confirm(self, conv, tile) -> None:
+        """The Allow card lives on the conversation panel; put it on the chat tile.
+
+        Mount used to move only the transcript and the composer, so even a
+        shown card stayed on the hidden desk face and never appeared in Filament.
+        """
+        if conv.confirm.parent() is tile.body:
+            return
+        lay = conv.layout()
+        if lay is not None:
+            lay.removeWidget(conv.confirm)
+        idx = tile.body_layout.indexOf(conv._composer)
+        if idx < 0:
+            tile.body_layout.addWidget(conv.confirm)
+        else:
+            tile.body_layout.insertWidget(idx, conv.confirm)
+
     def _filament_mount_chat(self) -> None:
         w = self.window
         conv = w.conversation
         tile = w._filament_chat_tile
         if conv.chat.parent() is tile.body:
+            self._filament_mount_confirm(conv, tile)
             return
         lay = conv.layout()
         if lay is not None:
@@ -881,6 +899,7 @@ class FilamentDesk:
             lay.removeWidget(conv._composer)
         tile.body_layout.addWidget(conv.chat, stretch=1)
         tile.body_layout.addWidget(conv._composer)
+        self._filament_mount_confirm(conv, tile)
         conv.chat.setMinimumWidth(0)
         conv._composer.setMinimumWidth(0)
         conv.chat.set_view_parked(False)
@@ -903,10 +922,12 @@ class FilamentDesk:
         if conv.chat.parent() is not tile.body:
             return
         tile.body_layout.removeWidget(conv.chat)
+        tile.body_layout.removeWidget(conv.confirm)
         tile.body_layout.removeWidget(conv._composer)
         lay = conv.layout()
         if lay is not None:
-            lay.insertWidget(1, conv.chat, stretch=1)
+            lay.insertWidget(0, conv.chat, stretch=1)
+            lay.insertWidget(1, conv.confirm)
             lay.addWidget(conv._composer)
         conv.chat.set_view_parked(True)
         conv.chat.hide()

@@ -1241,20 +1241,25 @@ class ConversationStage(GlassFrame):
     ) -> None:
         from arelis.ui.theme import active_theme
 
+        # Filament used to arm() and hide the card, so only "waiting for you..."
+        # showed and Allow, Deny, and the download size never appeared. The card
+        # must render in every theme. Open the chat tile so it is on screen.
         if active_theme() == "filament":
-            self.confirm.arm(confirm_id, headline or summary)
-        else:
-            self.confirm.ask(
-                confirm_id,
-                tool,
-                summary,
-                detail=detail,
-                note=note,
-                batch_ok=batch_ok,
-                persist_ok=persist_ok,
-                persist_label=persist_label,
-                headline=headline,
-            )
+            win = self.window()
+            opener = getattr(win, "_filament_set_chat_open", None)
+            if callable(opener):
+                opener(True)
+        self.confirm.ask(
+            confirm_id,
+            tool,
+            summary,
+            detail=detail,
+            note=note,
+            batch_ok=batch_ok,
+            persist_ok=persist_ok,
+            persist_label=persist_label,
+            headline=headline,
+        )
         self._sync_composer_buttons()
         self.idle_conditions_changed.emit()
         self._place_parked_orbit()

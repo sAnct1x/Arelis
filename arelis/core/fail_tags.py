@@ -29,11 +29,29 @@ _REPLAN_TOOLS = frozenset(
 _SEND_TOOLS = frozenset({"send_email", "send_sms"})
 
 
+
+def _image_backend(config: dict | None) -> str:
+    """``sdcpp`` or ``comfy``. Missing config uses the built-in engine."""
+    try:
+        from arelis.tools.sdcpp import resolve_backend
+    except Exception:
+        # Missing helper: the built-in engine is the shipped default.
+        return "sdcpp"
+    image = (config or {}).get("tools", {}) if isinstance(config, dict) else {}
+    if not isinstance(image, dict):
+        image = {}
+    image = image.get("image") if isinstance(image.get("image"), dict) else {}
+    if not isinstance(image, dict):
+        image = {}
+    return resolve_backend(str(image.get("backend") or "sdcpp"))
+
+
 def tool_fail_replan_notice(
     name: str,
     output: str,
     *,
     ok: bool | None = None,
+    config: dict | None = None,
 ) -> str | None:
     """Return a one-shot replan nudge when a tracked tool failed, else None.
 
@@ -93,13 +111,22 @@ def tool_fail_replan_notice(
             f"call {tool} again only if they still want it sent."
         )
     if tool == "image":
+        backend = _image_backend(config)
+        if backend == "comfy":
+            return (
+                f"Tool replan: image failed ({tag}). "
+                "Tell the user ComfyUI is not running or image generation failed. "
+                "Do NOT call send_sms, send_email, comfyui, or search_images, those "
+                "tools do not exist or do not start ComfyUI. Do not fetch stock "
+                "photos unless they asked for a description or a web search. "
+                "They must start ComfyUI themselves (or set tools.image.auto_start)."
+            )
         return (
             f"Tool replan: image failed ({tag}). "
-            "Tell the user ComfyUI is not running or image generation failed. "
-            "Do NOT call send_sms, send_email, comfyui, or search_images, those "
-            "tools do not exist or do not start ComfyUI. Do not fetch stock "
-            "photos unless they asked for a description or a web search. "
-            "They must start ComfyUI themselves (or set tools.image.auto_start)."
+            "Tell the user the picture could not be made. Repeat the tool error "
+            "in plain words. Do NOT call send_sms, send_email, or "
+            "search_images, those tools do not exist. Do not fetch stock "
+            "photos unless they asked for a description or a web search."
         )
     if tool == "plot":
         return (

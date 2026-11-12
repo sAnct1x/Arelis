@@ -231,6 +231,11 @@ def restore_cwd() -> str | None:
         return _saved_cwd
 
 
+def remember_launch(args: list[str] | None, *, cwd: str | None = None) -> None:
+    """Keep a command and working folder for the next restore."""
+    _remember_args(args, cwd=cwd)
+
+
 def _remember_args(args: list[str] | None, *, cwd: str | None = None) -> None:
     global _saved_args, _saved_cwd
     if not args:

@@ -521,3 +521,143 @@ def test_restore_does_not_block_the_event_loop_and_posts_resuming_first(
     assert "tick" in mid
     assert "resuming" in mid
 
+
+
+def test_next_launch_restores_llama_if_a_picture_left_it_stopped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+
+    marker = tmp_path / "gpu-lease.json"
+    events: list[tuple[Any, ...]] = []
+    saved = ["llama-server", "--host", "127.0.0.1", "--port", "8090"]
+
+    def stop(url: str) -> bool:
+        events.append(("stop", url))
+        return True
+
+    def ensure(url: str, args: list[str] | None) -> None:
+        events.append(("ensure", url, list(args or [])))
+
+    def nowait(url: str, args: list[str] | None) -> None:
+        events.append(("nowait", url, list(args or [])))
+
+    gpu_lease.reset_for_tests(stop=stop, ensure=ensure, nowait=nowait, args=lambda _c: list(saved))
+    gpu_lease.set_marker_path(marker)
+    monkeypatch.setattr("arelis.tools.gpu_lease._server_up", lambda _url: False)
+    gpu_lease.acquire({"llamacpp": {"base_url": "http://127.0.0.1:8090"}})
+    assert marker.is_file()
+    payload = json.loads(marker.read_text(encoding="utf-8"))
+    assert payload["args"] == saved
+    assert payload["base_url"] == "http://127.0.0.1:8090"
+    # Hard kill: in-memory lease state is gone, the marker file remains.
+    snap = marker.read_text(encoding="utf-8")
+    gpu_lease.reset_for_tests(
+        stop=stop,
+        ensure=ensure,
+        nowait=nowait,
+        args=lambda _c: ["llama-server", "--port", "8080"],
+    )
+    gpu_lease.set_marker_path(marker)
+    marker.write_text(snap, encoding="utf-8")
+    events.clear()
+    monkeypatch.setattr("arelis.tools.gpu_lease._server_up", lambda _url: False)
+    assert gpu_lease.recover_paused_server({"llamacpp": {"base_url": "http://127.0.0.1:8090"}}) is True
+    assert events == [("ensure", "http://127.0.0.1:8090", saved)]
+    assert not marker.is_file()
+
+
+def test_successful_picture_reseeds_history_so_the_next_turn_is_not_cold(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from types import SimpleNamespace
+
+    from arelis.core.memory import ChatMessage, SessionMemory
+    from arelis.llm.startup import PrefixWarmup, seed_after_gpu_restore
+
+    class _Bus:
+        async def publish(self, event: Any) -> None:
+            del event
+
+    class _Provider:
+        def __init__(self) -> None:
+            self.calls: list[list[dict[str, Any]]] = []
+
+        async def stream_chat(self, model, messages, **kwargs):
+            del model, kwargs
+            self.calls.append(list(messages))
+            yield ("token", "x")
+
+    class _Router:
+        def __init__(self, provider: _Provider) -> None:
+            self.provider = provider
+            self.active_model = "probe-chat"
+            self.default_role = "fast"
+            self.default_keep_alive = "30m"
+
+        def model_for(self, role=None):
+            del role
+            return self.active_model
+
+    prefix = PrefixWarmup(
+        messages=[{"role": "system", "content": "PERSONA " * 50}],
+        tools=[{"type": "function", "function": {"name": "image"}}],
+        num_ctx=4096,
+    )
+    monkeypatch.setattr("arelis.llm.startup.prefix_warmup_for", lambda *a, **k: prefix)
+    memory = SessionMemory()
+    memory.messages = [
+        ChatMessage(role="user", content="make a picture of a red fox"),
+        ChatMessage(role="assistant", content="Image ready: outputs/images/fox.png"),
+        ChatMessage(role="user", content="what is Saturn's largest moon?"),
+        ChatMessage(role="assistant", content="Titan is Saturn's largest moon."),
+    ]
+    provider = _Provider()
+    tokens = asyncio.run(
+        seed_after_gpu_restore(
+            {},
+            _Router(provider),  # type: ignore[arg-type]
+            _Bus(),  # type: ignore[arg-type]
+            tools={},
+            memory=memory,
+        )
+    )
+    assert provider.calls, "the post-picture seed never reached the server"
+    seeded = provider.calls[0]
+    assert any("red fox" in str(item.get("content") or "") for item in seeded)
+    assert any("Titan" in str(item.get("content") or "") for item in seeded)
+    prefix_only = asyncio.run(
+        seed_after_gpu_restore(
+            {},
+            _Router(provider),  # type: ignore[arg-type]
+            _Bus(),  # type: ignore[arg-type]
+            tools={},
+            memory=SimpleNamespace(as_chat=lambda **k: []),
+        )
+    )
+    # History must add tokens beyond the static prefix. This is the estimator
+    # a fake server can give; first-turn wall time still needs an Atria run.
+    assert tokens > prefix_only
+
+    events = _install_lease_spies()
+    _patch_sdcpp_ready(monkeypatch, tmp_path)
+    seeded_hook: list[str] = []
+
+    async def _hook() -> None:
+        seeded_hook.append("seed")
+
+    gpu_lease.set_restore_warmup(_hook)
+    config = {
+        "llamacpp": {"base_url": "http://127.0.0.1:8080"},
+        "tools": {"image": {"backend": "sdcpp", "sdcpp": {"idle_timeout_s": 90}}},
+    }
+    tool = ImageTool(
+        comfy_url="http://127.0.0.1:9",
+        output_dir=str(tmp_path / "out"),
+        backend="sdcpp",
+        config=config,
+    )
+    result = asyncio.run(tool.run(prompt="a red fox"))
+    assert result.ok is True
+    assert [item[0] for item in events] == ["stop", "ensure"]
+    assert seeded_hook == ["seed"]
