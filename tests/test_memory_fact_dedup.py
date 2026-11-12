@@ -164,3 +164,42 @@ def test_explicit_remember_reactivates_forgotten_claim(tmp_path: Path) -> None:
         assert row["status"] == "active"
     finally:
         store.close()
+
+
+def test_reworded_owner_fact_updates_row_but_new_value_does_not(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path))
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "profile.yaml").write_text("name: Dana Reyes\n", encoding="utf-8")
+    store = MemoryStore(tmp_path / "memory.db")
+    try:
+        first = store.add_fact(
+            "Dana's finder scope is a 9x50 right-angle finder.",
+            source="proposed",
+            status="active",
+        )
+        for text in (
+            "My finder scope is a 9x50 right angle finder.",
+            "The finder on my telescope is a right angle 9x50 finderscope.",
+        ):
+            assert store.add_fact(text, source="explicit", status="active") == first
+        other = store.add_fact(
+            "Dana's finder scope is an 8x50 right-angle finder.",
+            source="explicit",
+            status="active",
+        )
+        planet = store.add_fact(
+            "My favourite planet to observe in the 8 inch Dobsonian is Saturn.",
+            source="explicit",
+            status="active",
+        )
+        swapped = store.add_fact(
+            "My favourite planet to observe in the 8 inch Dobsonian is Jupiter.",
+            source="explicit",
+            status="active",
+        )
+        assert len({first, other, planet, swapped}) == 4
+        assert len(_active(store)) == 4
+    finally:
+        store.close()

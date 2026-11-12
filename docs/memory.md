@@ -6,6 +6,13 @@ the date it was first saved and the date it last changed. If she hears the
 same fact again in slightly different words, she updates the existing fact
 instead of adding a second copy.
 
+"My finder is a 9x50 right-angle finder", "Dana's finder is a 9x50 right
+angle finder", and "the finder on my telescope is a right angle 9x50
+finderscope" count as one fact. She recognises your own name from the `name`
+and `prefer_called` lines in `data/profile.yaml`, so fill those in. A changed
+number or value ("8x50" instead of "9x50", Jupiter instead of Saturn), someone
+else's thing ("my sister's finder"), or a "not" keeps the facts separate.
+
 ## See, edit, or forget what she remembers
 
 Open **Settings → memory**. The list is the facts she uses as durable

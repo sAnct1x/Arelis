@@ -17,25 +17,155 @@ from arelis.memory.store import (
 if TYPE_CHECKING:
     from arelis.memory.store import MemoryStore
 
+_APOSTROPHES = str.maketrans({"\u2019": "'", "\u2018": "'"})
+
+# Words that only say whose fact it is. "the finder on my telescope" and
+# "the finder on the telescope" are one claim about one owner.
+_OWNER_WORDS = frozenset({"i", "me", "my", "mine", "myself", "you", "your", "yours"})
+_THE_USER = re.compile(r"\bthe\s+user(?:'s)?\b")
+_FILLER = frozenset(
+    {"a", "an", "the", "is", "are", "am", "be", "of", "on", "in", "at", "to", "for",
+     "with", "and", "that", "this", "it", "s"}
+)
+_SAME_WORD = {"has": "have"}
+_NEGATIONS = frozenset({"not", "no", "never", "nor", "without", "t"})
+_NUMBER_WORDS = frozenset(
+    {"zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
+     "ten", "eleven", "twelve", "twenty", "hundred", "thousand", "million",
+     "first", "second", "third", "half", "dozen"}
+)
+# "it's" and friends are contractions, not someone else's possession.
+_NOT_POSSESSORS = frozenset(
+    {"it", "that", "there", "here", "what", "who", "he", "she", "let", "where"}
+)
+_POSSESSIVE = re.compile(r"\b([a-z0-9]+)'s\b")
+# One-sided extra words are tolerated only up to this share of the longer
+# wording: "the finder on my telescope" adds "telescope", a new claim adds more.
+_NEAR_DUP_MIN_SHARE = 0.8
+
+_owner_cache: tuple[tuple[str, int], re.Pattern[str] | None] | None = None
+
+
+def _owner_name_pattern() -> re.Pattern[str] | None:
+    """The owner's own name from profile.yaml (name, prefer_called), or None.
+
+    Read from the same file the standing profile rides in, so "Dana's finder"
+    and "my finder" are one claim for Dana and nobody's name is baked in.
+    Cached on the file's mtime because every stored row is compared per save.
+    """
+    global _owner_cache
+    from arelis.profile import load_standing_profile, resolve_profile_path
+
+    path = resolve_profile_path()
+    try:
+        stamp = (str(path), path.stat().st_mtime_ns)
+    except OSError:
+        return None
+    if _owner_cache is not None and _owner_cache[0] == stamp:
+        return _owner_cache[1]
+    fields = load_standing_profile(path)
+    words: set[str] = set()
+    for field in ("name", "prefer_called"):
+        raw = (fields.get(field) or "").lower().translate(_APOSTROPHES)
+        words.update(w for w in re.findall(r"[a-z0-9]+", raw) if len(w) > 1)
+    pattern = None
+    if words:
+        names = "|".join(sorted((re.escape(w) for w in words), key=len, reverse=True))
+        pattern = re.compile(rf"\b(?:{names})(?:'s)?\b")
+    _owner_cache = (stamp, pattern)
+    return pattern
+
+
+def _lower(text: str) -> str:
+    return (text or "").strip().lower().translate(_APOSTROPHES)
+
+
+def _strip_owner_names(raw: str) -> str:
+    pattern = _owner_name_pattern()
+    raw = _THE_USER.sub(" ", raw)
+    return pattern.sub(" ", raw) if pattern is not None else raw
+
+
 def normalize_fact_text(text: str) -> str:
     """Canonical form for matching two wordings of the same fact."""
-    raw = (text or "").strip().lower()
-    raw = raw.replace("\u2019", "'").replace("\u2018", "'")
-    raw = _FACT_OWNER.sub("", raw)
+    raw = _FACT_OWNER.sub("", _lower(text))
+    pattern = _owner_name_pattern()
+    if pattern is not None:
+        match = pattern.match(raw)
+        if match is not None:
+            raw = raw[match.end() :]
     raw = re.sub(r"[^a-z0-9]+", " ", raw)
     return " ".join(raw.split())
+
+
+def _fact_signature(text: str) -> tuple[list[str], frozenset[str], bool]:
+    """Content words, the values that must agree, and whether it is negated."""
+    raw = _strip_owner_names(_lower(text))
+    possessors = {
+        f"{m}'s" for m in _POSSESSIVE.findall(raw) if m not in _NOT_POSSESSORS
+    }
+    tokens = re.findall(r"[a-z0-9]+", raw)
+    negated = any(t in _NEGATIONS for t in tokens)
+    words = [
+        _SAME_WORD.get(t, t)
+        for t in tokens
+        if t not in _FILLER and t not in _OWNER_WORDS and t not in _NEGATIONS
+    ]
+    values = frozenset(
+        {t for t in words if any(c.isdigit() for c in t) or t in _NUMBER_WORDS}
+        | possessors
+    )
+    return words, values, negated
+
+
+def _fold_compounds(words: list[str], other: set[str]) -> set[str]:
+    """Join "finder scope" into "finderscope" when the other wording has it."""
+    out: list[str] = []
+    i = 0
+    while i < len(words):
+        if i + 1 < len(words) and words[i] + words[i + 1] in other:
+            out.append(words[i] + words[i + 1])
+            i += 2
+            continue
+        out.append(words[i])
+        i += 1
+    return {_stem(w) for w in out}
+
+
+def _stem(word: str) -> str:
+    if len(word) > 3 and word.endswith("s") and not word.endswith("ss"):
+        return word[:-1]
+    return word
 
 
 def _facts_are_near_duplicates(left: str, right: str) -> bool:
     """True when two facts should share one row.
 
-    Merge only on normalized equality (owner prefixes already stripped).
-    Forget still uses the looser matcher; this one must not, or claims
-    that differ in a number, a date, or a negation collapse into one row.
+    Merge when the wordings normalize the same (owner's "my", "the user's",
+    or own name stripped; punctuation and hyphens ignored), or when one
+    wording's content words all appear in the other with only a small
+    one-sided addition. Any value that differs (a number, a date, someone
+    else's possessive, a negation) blocks the merge, and so does any swapped
+    word (Saturn vs Jupiter), so distinct claims never collapse.
     """
     norm_left = normalize_fact_text(left)
     norm_right = normalize_fact_text(right)
-    return bool(norm_left) and norm_left == norm_right
+    if not norm_left or not norm_right:
+        return False
+    if norm_left == norm_right:
+        return True
+    words_left, values_left, neg_left = _fact_signature(left)
+    words_right, values_right, neg_right = _fact_signature(right)
+    if values_left != values_right or neg_left != neg_right:
+        return False
+    set_left = _fold_compounds(words_left, set(words_right))
+    set_right = _fold_compounds(words_right, set(words_left))
+    if not set_left or not set_right:
+        return False
+    small, large = sorted((set_left, set_right), key=len)
+    if not small <= large:
+        return False
+    return len(small) / len(large) >= _NEAR_DUP_MIN_SHARE
 
 
 def _fact_rows(
@@ -89,6 +219,9 @@ def _find_matching_fact(
         return None
     for row in rows:
         if normalize_fact_text(str(row["text"] or "")) == norm:
+            return row
+    for row in rows:
+        if _facts_are_near_duplicates(text, str(row["text"] or "")):
             return row
     return None
 
