@@ -286,3 +286,81 @@ def test_lease_restore_uses_saved_command_not_built_args(monkeypatch) -> None:
         llama_launch._saved_cwd = None
         gpu_lease.reset_for_tests()
 
+
+def test_ensure_fallback_keeps_configured_port_and_context(tmp_path, monkeypatch) -> None:
+    from arelis.tools import gpu_lease
+
+    model = tmp_path / "custom.gguf"
+    model.write_bytes(b"gguf")
+    binary = str(tmp_path / "custom-llama-server")
+    config = {
+        "llamacpp": {
+            "base_url": "http://127.0.0.1:8090",
+            "default_cap": 16384,
+            "model": str(model),
+            "binary": binary,
+            "avatar_headroom": False,
+        }
+    }
+    saved = [
+        "llama-server",
+        "-m",
+        "model.gguf",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8090",
+    ]
+
+    class _Dead:
+        pid = 8
+
+        def poll(self) -> int | None:
+            return 1
+
+    class _Live:
+        pid = 9
+
+        def poll(self) -> int | None:
+            return None
+
+    calls: list[list[str]] = []
+
+    def fake_popen(args, **kwargs):
+        del kwargs
+        calls.append(list(args))
+        if list(args) == saved:
+            return _Dead()
+        return _Live()
+
+    # Weights are findable even with an empty config, so a reverted
+    # launch_args_for(None) still builds a line and the wrong port/ctx fail.
+    monkeypatch.setattr(llama_launch, "locate_model_gguf", lambda _config: model)
+    monkeypatch.setattr(llama_launch, "_log_path", lambda: None)
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(llama_launch, "_health_ok", lambda url: False)
+    monkeypatch.setattr(
+        llama_launch, "_wait_ready", lambda url, proc, timeout: proc.poll() is None
+    )
+    llama_launch._saved_args = list(saved)
+    llama_launch._saved_cwd = None
+    llama_launch._proc = None
+    gpu_lease.reset_for_tests(
+        stop=lambda url: True,
+        nowait=lambda url, args: None,
+        args=lambda _config: list(saved),
+    )
+    try:
+        gpu_lease.acquire(config)
+        gpu_lease.release()
+        assert len(calls) == 2
+        assert calls[0] == saved
+        fallback = calls[1]
+        assert fallback[0] == binary
+        assert fallback[fallback.index("--port") + 1] == "8090"
+        assert fallback[fallback.index("-c") + 1] == "16384"
+    finally:
+        llama_launch._saved_args = None
+        llama_launch._saved_cwd = None
+        llama_launch._proc = None
+        gpu_lease.reset_for_tests()

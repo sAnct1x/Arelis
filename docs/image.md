@@ -21,8 +21,9 @@ the graphics card. Chat shows that in plain words: chat is paused while
 the picture is made, usually a couple of minutes, then about a minute to
 bring chat back. When the picture is done, chat shows that it is being
 brought back and starts llama-server again right away, without freezing
-the rest of the app. If llama-server cannot start, a plain message says
-so. If the picture program fails, is stopped, or Arelis quits, chat
+the rest of the app. If chat cannot come back after the picture, a plain
+message says so and asks you to try closing Arelis and opening it again.
+If the picture program fails, is stopped, or Arelis quits, chat
 is also started again. A message typed while a picture is in progress
 waits, then is answered after chat is back.
 

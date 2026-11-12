@@ -26,8 +26,8 @@ CHAT_PAUSED = (
 )
 CHAT_RESUMING = "Bringing chat back. This usually takes about a minute."
 CHAT_RESTORE_FAILED = (
-    "Chat could not be brought back after the picture. "
-    "You may need to start llama-server yourself."
+    "Chat could not come back after the picture. "
+    "Try closing Arelis and opening it again."
 )
 
 StatusFn = Callable[[str], None]
@@ -88,14 +88,18 @@ def _stop(base_url: str) -> bool:
     return bool(stop_server(base_url))
 
 
-def _ensure(base_url: str, args: list[str] | None) -> None:
+def _ensure(
+    base_url: str,
+    args: list[str] | None,
+    config: dict[str, Any] | None = None,
+) -> None:
     fn = _ensure_fn
     if fn is not None:
         fn(base_url, args)
         return
     from arelis.llm.llama_launch import ensure_server
 
-    ensure_server(base_url, args)
+    ensure_server(base_url, args, config=config)
 
 
 def _nowait(base_url: str, args: list[str] | None) -> None:
@@ -234,7 +238,7 @@ def release(*, nowait: bool = False) -> None:
         if nowait:
             _nowait(url, args)
         else:
-            _ensure(url, args)
+            _ensure(url, args, cfg)
         log.info("Image GPU lease released (nowait=%s)", nowait)
     except Exception:
         log.warning("Image GPU lease failed to restore llama-server", exc_info=True)

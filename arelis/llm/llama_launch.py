@@ -298,7 +298,11 @@ def decode_probe_state(status_code: int) -> str:
     return "down"
 
 
-def ensure_server(base_url: str, args: list[str] | None) -> None:
+def ensure_server(
+    base_url: str,
+    args: list[str] | None,
+    config: dict[str, Any] | None = None,
+) -> None:
     """Start llama-server when the chat port is down.
 
     A listening port is not enough. ``/health`` stays ok after the graphics
@@ -325,7 +329,7 @@ def ensure_server(base_url: str, args: list[str] | None) -> None:
         # A hand-started server with relative paths dies if we replay it
         # from Arelis's folder. Try the built launch line once.
         if proc.poll() is not None:
-            fallback = launch_args_for(None)
+            fallback = launch_args_for(config)
             if fallback and list(fallback) != list(args):
                 log.warning(
                     "Saved llama-server command exited before it was ready; "
