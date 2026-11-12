@@ -271,6 +271,51 @@ def test_clicking_a_history_chat_opens_it_in_the_chat_tile(
     assert (loads, toasts) == (["s-old"], [])
     assert w._filament_chat_open
 
+def test_history_new_keeps_the_composer_on_the_open_chat_tile(arelis_window, qt_app) -> None:
+    import asyncio
+    from types import SimpleNamespace
+
+    from arelis.core.events import EventType
+    from arelis.core.orchestrator_turns import OrchestratorTurns
+    from arelis.ui.idle_host import sync_idle_mode
+
+    w = _filament(arelis_window, qt_app)
+    store = SimpleNamespace(
+        start_or_reuse_empty_session=lambda room_id: "s-new",
+        get_messages=lambda _sid: [],
+        get_summary=lambda _sid: "",
+    )
+    seat = SimpleNamespace(
+        _turn_task=None,
+        _memory_store=lambda: store,
+        memory=SimpleNamespace(hydrate=lambda rows, summary="": None),
+        bus=w.bus,
+    )
+    w.bus.subscribe(None, w.bridge.feed)
+    w.bus.subscribe(EventType.SESSION_LOAD, lambda e: OrchestratorTurns.on_session_load(seat, e))
+    w._filament_set_chat_open(True)
+    w.chat.add_user("hello")
+    w.chat.finish_assistant("hi")
+    sync_idle_mode(w)
+    qt_app.processEvents()
+    w.history.new_btn.click()
+
+    async def deliver() -> None:
+        pump = asyncio.ensure_future(w.bus.run())
+        await asyncio.sleep(0)
+        await w.bus.drain()
+        w.bus.stop()
+        pump.cancel()
+
+    w.loop.run_until_complete(deliver())
+    qt_app.processEvents()
+    composer = w.conversation._composer
+    assert not w.chat.has_messages
+    assert composer.parent() is w._filament_chat_tile.body
+    assert composer.isVisible() and w.conversation.input.isVisible()
+    assert not w.chat.empty.isVisible()
+
+
 def test_the_splash_stays_until_model_arelis_tree_and_a_paint_are_ready(
     arelis_window, qt_app, monkeypatch
 ) -> None:
