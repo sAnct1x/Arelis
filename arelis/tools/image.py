@@ -651,7 +651,9 @@ class ImageTool:
                     idle_s: float | None = float(idle)
                 except (TypeError, ValueError):
                     idle_s = None
-                mark_generation_done(success=success, idle_s=idle_s)
+                await asyncio.to_thread(
+                    mark_generation_done, success=success, idle_s=idle_s
+                )
 
     async def run(self, **kwargs: Any) -> ToolResult:
         prompt = str(kwargs.get("prompt") or "").strip()
@@ -1087,6 +1089,11 @@ class ImageTool:
             return ToolResult(ok=False, output=f"[fail:image] image failed: {exc}")
 
 
+# Set when a progress line is posted on the event loop, so a worker-thread
+# resume line can still reach chat while llama-server is starting.
+_progress_loop: Any = None
+
+
 def schedule_image_progress(bus: Any, line: str) -> None:
     """Push pause wording to chat, or a composer shimmer for sampler lines."""
     import asyncio
@@ -1098,7 +1105,21 @@ def schedule_image_progress(bus: Any, line: str) -> None:
         event = Event(EventType.REPLY_NOTE, {"message": line})
     else:
         event = Event(EventType.STATUS, {"message": line, "image_progress": True})
+
+    def _queue(loop: asyncio.AbstractEventLoop) -> None:
+        loop.create_task(bus.publish(event))
+
+    global _progress_loop
     try:
-        asyncio.get_running_loop().create_task(bus.publish(event))
+        loop = asyncio.get_running_loop()
     except RuntimeError:
-        pass
+        loop = _progress_loop
+        if loop is None or not loop.is_running():
+            return
+        try:
+            loop.call_soon_threadsafe(_queue, loop)
+        except RuntimeError:
+            return
+        return
+    _progress_loop = loop
+    _queue(loop)

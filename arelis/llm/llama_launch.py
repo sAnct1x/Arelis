@@ -78,6 +78,8 @@ _proc: subprocess.Popen[bytes] | None = None
 # Command line of the server we stopped or last started. Restore uses this
 # exact list so a restart does not add flags the original launch did not have.
 _saved_args: list[str] | None = None
+# Working folder of that process. A hand-started server may use relative paths.
+_saved_cwd: str | None = None
 Cancel = Callable[[], bool]
 
 # Windows: leave the process outside Arelis's tree and job, like a manual start.
@@ -223,11 +225,18 @@ def restore_args(config: dict[str, Any] | None) -> list[str] | None:
     return launch_args_for(config)
 
 
-def _remember_args(args: list[str] | None) -> None:
-    global _saved_args
+def restore_cwd() -> str | None:
+    """Working folder of the server we stopped or last started, if known."""
+    with _lock:
+        return _saved_cwd
+
+
+def _remember_args(args: list[str] | None, *, cwd: str | None = None) -> None:
+    global _saved_args, _saved_cwd
     if not args:
         return
     _saved_args = list(args)
+    _saved_cwd = str(cwd) if cwd else None
 
 
 def _cmdline_for_pid(pid: int) -> list[str] | None:
@@ -243,6 +252,21 @@ def _cmdline_for_pid(pid: int) -> list[str] | None:
     if not cmd:
         return None
     return [str(part) for part in cmd]
+
+
+def _cwd_for_pid(pid: int) -> str | None:
+    try:
+        import psutil
+    except ImportError:
+        return None
+    try:
+        folder = psutil.Process(int(pid)).cwd()
+    except Exception:
+        # The process may already have exited; keep the last saved folder.
+        return None
+    if not folder:
+        return None
+    return str(folder)
 
 
 def one_token_payload(model: str = "") -> dict[str, Any]:
@@ -294,10 +318,24 @@ def ensure_server(base_url: str, args: list[str] | None) -> None:
         if _proc is not None and _proc.poll() is None:
             proc = _proc
         else:
-            proc = _spawn(args)
+            proc = _spawn(args, cwd=_saved_cwd)
             _proc = proc
-        if not _wait_ready(base_url, proc, _HEALTH_WAIT_S):
-            raise RuntimeError(_SLOW)
+        if _wait_ready(base_url, proc, _HEALTH_WAIT_S):
+            return
+        # A hand-started server with relative paths dies if we replay it
+        # from Arelis's folder. Try the built launch line once.
+        if proc.poll() is not None:
+            fallback = launch_args_for(None)
+            if fallback and list(fallback) != list(args):
+                log.warning(
+                    "Saved llama-server command exited before it was ready; "
+                    "trying the built launch line"
+                )
+                proc = _spawn(fallback, cwd=None)
+                _proc = proc
+                if _wait_ready(base_url, proc, _HEALTH_WAIT_S):
+                    return
+        raise RuntimeError(_SLOW)
 
 
 def stop_server(base_url: str = "http://127.0.0.1:8080", *, timeout_s: float = 8.0) -> bool:
@@ -314,8 +352,9 @@ def stop_server(base_url: str = "http://127.0.0.1:8080", *, timeout_s: float = 8
         _proc = None
         if proc is not None and proc.poll() is None:
             remembered = _cmdline_for_pid(int(proc.pid))
+            folder = _cwd_for_pid(int(proc.pid))
             if remembered:
-                _remember_args(remembered)
+                _remember_args(remembered, cwd=folder)
             log.info("Stopping llama-server (pid=%s) to free the GPU", proc.pid)
             stopped = _terminate_proc(proc, timeout_s=timeout_s) or stopped
     host, port = _listen(base_url)
@@ -340,7 +379,7 @@ def start_server_nowait(base_url: str, args: list[str] | None) -> None:
         global _proc
         if _proc is not None and _proc.poll() is None:
             return
-        _proc = _spawn(args)
+        _proc = _spawn(args, cwd=_saved_cwd)
 
 
 def _terminate_proc(proc: subprocess.Popen[bytes], *, timeout_s: float) -> bool:
@@ -374,8 +413,9 @@ def _kill_local_port(port: int) -> bool:
         if pid <= 0 or pid == self_pid:
             continue
         remembered = _cmdline_for_pid(int(pid))
+        folder = _cwd_for_pid(int(pid))
         if remembered:
-            _remember_args(remembered)
+            _remember_args(remembered, cwd=folder)
         log.info("Stopping leftover llama-server listener pid=%s port=%s", pid, port)
         if _terminate_pid(pid):
             killed = True
@@ -688,17 +728,20 @@ def _log_path() -> Path | None:
         return None
 
 
-def _spawn(args: list[str]) -> subprocess.Popen[bytes]:
+def _spawn(args: list[str], *, cwd: str | None = None) -> subprocess.Popen[bytes]:
     kwargs: dict[str, Any] = {
         "stdin": subprocess.DEVNULL,
         "stdout": subprocess.DEVNULL,
         "stderr": subprocess.STDOUT,
     }
+    if cwd:
+        kwargs["cwd"] = cwd
     handle = None
     log_path = _log_path()
     if log_path is not None:
         handle = log_path.open("ab")
         kwargs["stdout"] = handle
+    breakaway = False
     if sys.platform == "win32":
         no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
         new_group = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
@@ -706,14 +749,29 @@ def _spawn(args: list[str]) -> subprocess.Popen[bytes]:
         if "--threads" in args:  # only llama_server_args with avatar headroom on adds it
             flags |= getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0x00004000)
         kwargs["creationflags"] = flags
+        breakaway = True
     else:
         kwargs["start_new_session"] = True
-    _remember_args(args)
+    _remember_args(args, cwd=cwd)
     log.info("Starting llama-server")
     try:
-        return subprocess.Popen(args, **kwargs)
-    except FileNotFoundError as exc:
-        raise RuntimeError(_MISSING_BINARY) from exc
+        try:
+            return subprocess.Popen(args, **kwargs)
+        except FileNotFoundError as exc:
+            raise RuntimeError(_MISSING_BINARY) from exc
+        except OSError:
+            flags = int(kwargs.get("creationflags") or 0)
+            if not breakaway or not (flags & _CREATE_BREAKAWAY_FROM_JOB):
+                raise
+            kwargs["creationflags"] = flags & ~_CREATE_BREAKAWAY_FROM_JOB
+            log.warning(
+                "llama-server could not break away from the job; "
+                "starting without that flag"
+            )
+            try:
+                return subprocess.Popen(args, **kwargs)
+            except FileNotFoundError as exc:
+                raise RuntimeError(_MISSING_BINARY) from exc
     finally:
         if handle is not None:
             handle.close()

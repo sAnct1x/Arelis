@@ -25,6 +25,10 @@ CHAT_PAUSED = (
     "This usually takes a couple of minutes, then about a minute to bring chat back."
 )
 CHAT_RESUMING = "Bringing chat back. This usually takes about a minute."
+CHAT_RESTORE_FAILED = (
+    "Chat could not be brought back after the picture. "
+    "You may need to start llama-server yourself."
+)
 
 StatusFn = Callable[[str], None]
 
@@ -221,6 +225,10 @@ def release(*, nowait: bool = False) -> None:
     args = _launch_args(cfg)
     if not should_start:
         return
+    if not args:
+        _tell(CHAT_RESTORE_FAILED)
+        log.warning("Image GPU lease has no llama-server command to restore")
+        return
     _tell(CHAT_RESUMING)
     try:
         if nowait:
@@ -231,13 +239,27 @@ def release(*, nowait: bool = False) -> None:
     except Exception:
         log.warning("Image GPU lease failed to restore llama-server", exc_info=True)
         # Last try: spawn without waiting so chat is not left dead.
+        retry = args
+        if _args_fn is None:
+            try:
+                from arelis.llm.llama_launch import launch_args_for
+
+                built = launch_args_for(cfg)
+                if built and list(built) != list(args):
+                    retry = built
+            except Exception:
+                log.warning(
+                    "Could not build fallback llama-server args",
+                    exc_info=True,
+                )
         try:
-            _nowait(url, args)
+            _nowait(url, retry)
         except Exception:
             log.warning(
                 "Image GPU lease could not spawn llama-server after a failed restore",
                 exc_info=True,
             )
+            _tell(CHAT_RESTORE_FAILED)
             raise
 
 

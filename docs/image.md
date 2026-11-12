@@ -19,8 +19,10 @@ deleted.
 While a picture is being made, chat is paused so the image model can use
 the graphics card. Chat shows that in plain words: chat is paused while
 the picture is made, usually a couple of minutes, then about a minute to
-bring chat back. When the picture is done, chat is started again right
-away. If the picture program fails, is stopped, or Arelis quits, chat
+bring chat back. When the picture is done, chat shows that it is being
+brought back and starts llama-server again right away, without freezing
+the rest of the app. If llama-server cannot start, a plain message says
+so. If the picture program fails, is stopped, or Arelis quits, chat
 is also started again. A message typed while a picture is in progress
 waits, then is answered after chat is back.
 

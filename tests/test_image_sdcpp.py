@@ -446,3 +446,78 @@ def test_picture_lease_posts_pause_wording_to_chat(
     assert CHAT_PAUSED in messages
     assert CHAT_RESUMING in messages
     assert all(not getattr(event, "payload", {}).get("image_progress") for event in notes)
+
+def test_restore_does_not_block_the_event_loop_and_posts_resuming_first(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Restore must run off the asyncio thread so the resume line can post."""
+    import time
+
+    from arelis.tools.gpu_lease import CHAT_RESUMING
+    from arelis.tools.image import schedule_image_progress
+
+    order: list[str] = []
+
+    def stop(url: str) -> bool:
+        del url
+        return True
+
+    def ensure(url: str, args: list[str] | None) -> None:
+        del url, args
+        order.append("ensure_start")
+        time.sleep(0.4)
+        order.append("ensure_end")
+
+    gpu_lease.reset_for_tests(
+        stop=stop,
+        ensure=ensure,
+        nowait=lambda url, args: None,
+        args=lambda _config: ["llama-server"],
+    )
+    _patch_sdcpp_ready(monkeypatch, tmp_path)
+    config = {
+        "llamacpp": {"base_url": "http://127.0.0.1:8080"},
+        "tools": {"image": {"backend": "sdcpp", "sdcpp": {"idle_timeout_s": 90}}},
+    }
+    tool = ImageTool(
+        comfy_url="http://127.0.0.1:9",
+        output_dir=str(tmp_path / "out"),
+        backend="sdcpp",
+        config=config,
+    )
+
+    class _Bus:
+        async def publish(self, event: object) -> None:
+            message = str(getattr(event, "payload", {}).get("message") or "")
+            if message == CHAT_RESUMING:
+                order.append("resuming")
+
+    bus = _Bus()
+    tool.set_progress(lambda line: schedule_image_progress(bus, line))
+
+    async def _run() -> object:
+        async def ticker() -> None:
+            while True:
+                order.append("tick")
+                await asyncio.sleep(0.05)
+
+        tick_task = asyncio.create_task(ticker())
+        try:
+            return await tool.run(prompt="a red fox")
+        finally:
+            tick_task.cancel()
+            try:
+                await tick_task
+            except asyncio.CancelledError:
+                pass
+
+    result = asyncio.run(_run())
+    assert result.ok is True
+    assert "ensure_start" in order
+    assert "ensure_end" in order
+    start = order.index("ensure_start")
+    end = order.index("ensure_end")
+    mid = order[start + 1 : end]
+    assert "tick" in mid
+    assert "resuming" in mid
+
