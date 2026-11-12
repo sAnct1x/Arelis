@@ -157,6 +157,11 @@ _NOT_A_TOOL_MENTION: dict[str, re.Pattern[str]] = {
     "remind": re.compile(
         r"\bremind\s+me\b[\s,:;-]*(?:what|who|how|why|where|which|whether|if|of|about)\b"
     ),
+    # "total units, Harvester count" counts sentinel units. The word names the
+    # conversion tool only as "the units tool" or after use, call, with, via, using.
+    "units": re.compile(
+        r"(?<!use )(?<!call )(?<!with )(?<!via )(?<!using )\bunits\b(?!\s+tool\b)"
+    ),
 }
 
 
