@@ -318,10 +318,8 @@ def _inserted_id(cur: sqlite3.Cursor) -> int:
 
 # Owner prefixes stripped before two facts are compared, so "my favourite fruit"
 # and "the user's favourite fruit" are recognised as the same claim. The user's
-# own name belongs here too — "Dana's favourite fruit" — but it cannot be a
-# literal, because a name baked in here works for exactly one person and
-# silently does nothing for everyone else. Reading it from the profile is the
-# fix; until then this handles the pronoun forms, which are the common case.
+# own name ("Dana's favourite fruit") cannot be a literal here, so the fact
+# merge in store_facts reads it from profile.yaml on top of these pronoun forms.
 _FACT_OWNER = re.compile(
     # The curly apostrophe is listed on purpose: it is what autocorrect
     # produces, and it has to strip the same as the straight form.

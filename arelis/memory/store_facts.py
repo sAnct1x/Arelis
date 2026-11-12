@@ -17,25 +17,145 @@ from arelis.memory.store import (
 if TYPE_CHECKING:
     from arelis.memory.store import MemoryStore
 
+_APOSTROPHES = str.maketrans({"\u2019": "'", "\u2018": "'"})
+
+# Words that only say whose fact it is. "the finder on my telescope" and
+# "the finder on the telescope" are one claim about one owner.
+_OWNER_WORDS = frozenset({"i", "me", "my", "mine", "myself", "you", "your", "yours"})
+_THE_USER = re.compile(r"\bthe\s+user(?:'s)?\b")
+_FILLER = frozenset(
+    {"a", "an", "the", "is", "are", "am", "be", "of", "on", "in", "at", "to", "for",
+     "with", "and", "that", "this", "it", "s"}
+)
+_SAME_WORD = {"has": "have"}
+# "can't", "cant" and "cannot" are one negation, so each spelling says "not".
+_NEGATION_FORMS = {
+    "cannot": ("can", "not"), "cant": ("can", "not"), "wont": ("will", "not"),
+    "dont": ("do", "not"), "doesnt": ("does", "not"), "didnt": ("did", "not"),
+    "isnt": ("is", "not"), "arent": ("are", "not"), "wasnt": ("was", "not"),
+    "werent": ("were", "not"), "hasnt": ("has", "not"), "havent": ("have", "not"),
+    "shouldnt": ("should", "not"), "couldnt": ("could", "not"),
+    "wouldnt": ("would", "not"),
+}
+
+_OwnerPatterns = tuple[re.Pattern[str], re.Pattern[str]]
+_owner_cache: tuple[tuple[str, int], _OwnerPatterns | None] | None = None
+
+
+def _owner_name_patterns() -> _OwnerPatterns | None:
+    """The owner's name at the start of a fact, and as "Name's" anywhere.
+
+    Read from profile.yaml (name, prefer_called), so "Dana's finder" and
+    "my finder" are one claim for Dana and nobody's name is baked in. Only
+    those two places mean the owner: for a user named Will, "I will sell
+    my scope" keeps its "will". Cached on the file's mtime because every
+    stored row is compared per save.
+    """
+    global _owner_cache
+    from arelis.profile import load_standing_profile, resolve_profile_path
+
+    path = resolve_profile_path()
+    try:
+        stamp = (str(path), path.stat().st_mtime_ns)
+    except OSError:
+        return None
+    if _owner_cache is not None and _owner_cache[0] == stamp:
+        return _owner_cache[1]
+    fields = load_standing_profile(path)
+    words: set[str] = set()
+    for field in ("name", "prefer_called"):
+        raw = (fields.get(field) or "").lower().translate(_APOSTROPHES)
+        words.update(w for w in re.findall(r"[a-z0-9]+", raw) if len(w) > 1)
+    patterns = None
+    if words:
+        names = "|".join(sorted((re.escape(w) for w in words), key=len, reverse=True))
+        patterns = (
+            re.compile(rf"^\s*(?:{names})(?:'s)?\b"),
+            re.compile(rf"\b(?:{names})'s\b"),
+        )
+    _owner_cache = (stamp, patterns)
+    return patterns
+
+
+def _lower(text: str) -> str:
+    return (text or "").strip().lower().translate(_APOSTROPHES)
+
+
+def _strip_owner_names(raw: str) -> str:
+    raw = _THE_USER.sub(" ", raw)
+    patterns = _owner_name_patterns()
+    if patterns is None:
+        return raw
+    at_start, possessive = patterns
+    return possessive.sub(" ", at_start.sub(" ", raw))
+
+
 def normalize_fact_text(text: str) -> str:
     """Canonical form for matching two wordings of the same fact."""
-    raw = (text or "").strip().lower()
-    raw = raw.replace("\u2019", "'").replace("\u2018", "'")
-    raw = _FACT_OWNER.sub("", raw)
+    raw = _FACT_OWNER.sub("", _lower(text))
+    patterns = _owner_name_patterns()
+    if patterns is not None:
+        match = patterns[0].match(raw)
+        if match is not None:
+            raw = raw[match.end() :]
     raw = re.sub(r"[^a-z0-9]+", " ", raw)
     return " ".join(raw.split())
+
+
+def _content_words(text: str) -> list[str]:
+    """The fact's content words in order, with owner words and filler dropped."""
+    raw = re.sub(r"n't\b", "nt", _strip_owner_names(_lower(text)))
+    words: list[str] = []
+    for token in re.findall(r"[a-z0-9]+", raw):
+        for part in _NEGATION_FORMS.get(token, (token,)):
+            if part not in _FILLER and part not in _OWNER_WORDS:
+                words.append(_SAME_WORD.get(part, part))
+    return words
+
+
+def _fold_compounds(words: list[str], other: list[str]) -> list[str]:
+    """Join "finder scope" into "finderscope" when the other wording has it."""
+    out: list[str] = []
+    i = 0
+    while i < len(words):
+        if i + 1 < len(words) and words[i] + words[i + 1] in other:
+            out.append(words[i] + words[i + 1])
+            i += 2
+            continue
+        out.append(words[i])
+        i += 1
+    return [_stem(w) for w in out]
+
+
+def _stem(word: str) -> str:
+    if len(word) > 3 and word.endswith("s") and not word.endswith("ss"):
+        return word[:-1]
+    return word
 
 
 def _facts_are_near_duplicates(left: str, right: str) -> bool:
     """True when two facts should share one row.
 
-    Merge only on normalized equality (owner prefixes already stripped).
-    Forget still uses the looser matcher; this one must not, or claims
-    that differ in a number, a date, or a negation collapse into one row.
+    Merge only when both wordings have the same content words in the same
+    order, once the owner's "my", "the user's" or own name, filler words,
+    punctuation, hyphens, plurals and "finder scope" vs "finderscope" are
+    set aside. Any added word (least, ex, used, not), any swapped word
+    (Saturn vs Jupiter, 8x50 vs 9x50) and any reordering (Boston to Denver
+    vs Denver to Boston) keeps the facts apart.
     """
     norm_left = normalize_fact_text(left)
     norm_right = normalize_fact_text(right)
-    return bool(norm_left) and norm_left == norm_right
+    if not norm_left or not norm_right:
+        return False
+    if norm_left == norm_right:
+        return True
+    words_left = _content_words(left)
+    words_right = _content_words(right)
+    if not words_left or not words_right:
+        return False
+    return _fold_compounds(words_left, words_right) == _fold_compounds(
+        words_right, words_left
+    )
 
 
 def _fact_rows(
@@ -89,6 +209,9 @@ def _find_matching_fact(
         return None
     for row in rows:
         if normalize_fact_text(str(row["text"] or "")) == norm:
+            return row
+    for row in rows:
+        if _facts_are_near_duplicates(text, str(row["text"] or "")):
             return row
     return None
 
