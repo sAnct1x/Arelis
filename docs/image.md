@@ -24,8 +24,10 @@ bring chat back. When the picture is done, chat shows that it is being
 brought back and starts llama-server again right away, without freezing
 the rest of the app. Before the pause, Arelis saves the chat model's
 place in the conversation and reloads it once llama-server is back, so
-the next message is not a long cold wait. If that save or reload cannot
-be done, the next message may take longer, with no extra error. A picture
+the next message is not a long cold wait. The save does not freeze the
+app, so chat lines and Stop still work. If that save or reload cannot
+be done, or the save takes more than about ten seconds, the next
+message may take longer, with no extra error. A picture
 that is stopped or fails brings chat back as soon as llama-server is
 running again, without waiting to reload that memory. If chat cannot come
 back after the picture, a plain message says so and asks you to try

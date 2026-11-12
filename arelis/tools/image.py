@@ -538,13 +538,34 @@ class ImageTool:
         except ModelError as exc:
             return ToolResult(ok=False, output=f"[fail:image] {exc}")
         set_status(self._note)
+        _bind_progress_loop()
         acquired = False
         success = False
         prompt_path: Path | None = None
         idle = sdcpp_cfg(self._config).get("idle_timeout_s", 90)
         try:
-            acquire(self._config)
+            # Off the asyncio thread so a slow slot save (and the stop
+            # that follows) cannot freeze chat lines or Stop. If Stop
+            # cancels this task mid-save, wait for acquire to finish
+            # and let the finally block restore llama-server if the
+            # lease already stopped it.
+            acquire_done = asyncio.create_task(
+                asyncio.to_thread(acquire, self._config)
+            )
+            try:
+                await asyncio.shield(acquire_done)
+            except asyncio.CancelledError:
+                try:
+                    await asyncio.shield(acquire_done)
+                    acquired = True
+                except Exception:
+                    # acquire already cleared the hold if it failed. Re-raise
+                    # CancelledError so Stop can finish.
+                    pass
+                raise
             acquired = True
+            if self._cancelled():
+                raise GenerationCancelledError()
             paths: list[str] = []
             seeds: list[int] = []
             out_w, out_h = width, height
@@ -651,8 +672,10 @@ class ImageTool:
                     idle_s: float | None = float(idle)
                 except (TypeError, ValueError):
                     idle_s = None
-                await asyncio.to_thread(
-                    mark_generation_done, success=success, idle_s=idle_s
+                await asyncio.shield(
+                    asyncio.to_thread(
+                        mark_generation_done, success=success, idle_s=idle_s
+                    )
                 )
 
     async def run(self, **kwargs: Any) -> ToolResult:
@@ -1092,6 +1115,15 @@ class ImageTool:
 # Set when a progress line is posted on the event loop, so a worker-thread
 # resume line can still reach chat while llama-server is starting.
 _progress_loop: Any = None
+
+
+def _bind_progress_loop() -> None:
+    """Remember the asyncio loop so lease status posted off-thread still lands."""
+    global _progress_loop
+    try:
+        _progress_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        pass
 
 
 def schedule_image_progress(bus: Any, line: str) -> None:

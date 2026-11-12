@@ -147,7 +147,11 @@ def headroom_on(config: dict[str, Any] | None) -> bool:
 
 
 SLOT_SAVE_FILENAME = "chat.bin"
+# Restore can wait this long. Save is capped separately so a stuck
+# llama-server cannot stall the picture start for a full minute.
 _SLOT_HTTP_TIMEOUT_S = 60.0
+_SLOT_SAVE_TIMEOUT_S = 10.0
+_SLOT_ID_TIMEOUT_S = 2.0
 _saved_slot_id = 0
 
 
@@ -176,10 +180,10 @@ def clear_slot_file() -> None:
         log.info("Could not remove the saved chat slot file", exc_info=True)
 
 
-def _slot_id(base_url: str) -> int:
+def _slot_id(base_url: str, *, timeout: float = _SLOT_ID_TIMEOUT_S) -> int:
     url = base_url.rstrip("/") + "/slots"
     try:
-        response = httpx.get(url, timeout=2.0)
+        response = httpx.get(url, timeout=max(0.01, timeout))
     except httpx.HTTPError:
         return 0
     if response.status_code >= 400:
@@ -199,13 +203,19 @@ def _slot_id(base_url: str) -> int:
     return 0
 
 
-def _post_slot_action(base_url: str, slot_id: int, action: str) -> bool:
+def _post_slot_action(
+    base_url: str,
+    slot_id: int,
+    action: str,
+    *,
+    timeout: float = _SLOT_HTTP_TIMEOUT_S,
+) -> bool:
     url = f"{base_url.rstrip('/')}/slots/{slot_id}?action={action}"
     try:
         response = httpx.post(
             url,
             json={"filename": SLOT_SAVE_FILENAME},
-            timeout=_SLOT_HTTP_TIMEOUT_S,
+            timeout=max(0.01, timeout),
         )
     except httpx.HTTPError:
         log.info("llama-server slot %s is not available", action)
@@ -221,11 +231,22 @@ def _post_slot_action(base_url: str, slot_id: int, action: str) -> bool:
 
 
 def save_slot(base_url: str) -> bool:
-    """Save the live chat KV cache. False means the next turn may be cold."""
+    """Save the live chat KV cache. False means the next turn may be cold.
+
+    The whole save is capped at about ten seconds. A timeout or error
+    is a quiet cold turn, not a user-facing failure.
+    """
     global _saved_slot_id
     clear_slot_file()
-    slot_id = _slot_id(base_url)
-    if not _post_slot_action(base_url, slot_id, "save"):
+    started = time.monotonic()
+    slot_id = _slot_id(
+        base_url,
+        timeout=min(_SLOT_ID_TIMEOUT_S, _SLOT_SAVE_TIMEOUT_S),
+    )
+    remaining = _SLOT_SAVE_TIMEOUT_S - (time.monotonic() - started)
+    if remaining <= 0 or not _post_slot_action(
+        base_url, slot_id, "save", timeout=remaining
+    ):
         clear_slot_file()
         return False
     _saved_slot_id = slot_id

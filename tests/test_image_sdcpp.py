@@ -522,6 +522,61 @@ def test_restore_does_not_block_the_event_loop_and_posts_resuming_first(
     assert "resuming" in mid
 
 
+def test_acquire_does_not_block_the_event_loop_during_a_slow_save(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Saving the chat slot must run off the asyncio thread so Stop still works."""
+    import time
+
+    from arelis.llm import llama_launch
+
+    order: list[str] = []
+
+    def slow_save(url: str) -> bool:
+        del url
+        order.append("save_start")
+        time.sleep(0.4)
+        order.append("save_end")
+        return True
+
+    monkeypatch.setattr(llama_launch, "save_slot", slow_save)
+    _install_lease_spies()
+    _patch_sdcpp_ready(monkeypatch, tmp_path)
+    config = {
+        "llamacpp": {"base_url": "http://127.0.0.1:8080"},
+        "tools": {"image": {"backend": "sdcpp", "sdcpp": {"idle_timeout_s": 90}}},
+    }
+    tool = ImageTool(
+        comfy_url="http://127.0.0.1:9",
+        output_dir=str(tmp_path / "out"),
+        backend="sdcpp",
+        config=config,
+    )
+
+    async def _run() -> object:
+        async def ticker() -> None:
+            while True:
+                order.append("tick")
+                await asyncio.sleep(0.05)
+
+        tick_task = asyncio.create_task(ticker())
+        try:
+            return await tool.run(prompt="a red fox")
+        finally:
+            tick_task.cancel()
+            try:
+                await tick_task
+            except asyncio.CancelledError:
+                pass
+
+    result = asyncio.run(_run())
+    assert result.ok is True
+    assert "save_start" in order
+    assert "save_end" in order
+    start = order.index("save_start")
+    end = order.index("save_end")
+    assert "tick" in order[start + 1 : end]
+
 
 def test_next_launch_restores_llama_if_a_picture_left_it_stopped(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -764,16 +819,123 @@ def test_stopped_or_crashed_picture_does_not_wait_on_slot_restore(
     assert elapsed < 1.0
 
 
-def test_startup_recovers_a_paused_llama_server() -> None:
-    """The launch path must call recover_paused_server (ui/launch.py)."""
-    import inspect
-    import re
+def test_startup_recovers_a_paused_llama_server(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """run_ui must actually call recover_paused_server, not just mention it."""
+    import threading
+    from types import SimpleNamespace
+
+    from PySide6.QtWidgets import QApplication, QWidget
 
     from arelis.ui import launch as launch_mod
 
-    source = inspect.getsource(launch_mod)
-    assert re.search(
-        r"asyncio\.to_thread\(\s*recover_paused_server\s*,\s*config\s*\)",
-        source,
+    monkeypatch.setenv("ARELIS_ALLOW_OFFSCREEN", "1")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path / "arelis-data"))
+
+    class _Lock:
+        def acquire(self) -> bool:
+            return True
+
+        def release(self) -> None:
+            return None
+
+    class _Router:
+        provider = None
+
+        def arm_warmup(self) -> None:
+            return None
+
+        def mark_warmup_done(self) -> None:
+            return None
+
+        async def close(self) -> None:
+            return None
+
+    fake_seat = SimpleNamespace(
+        router=_Router(),
+        store=None,
+        tools={},
+        orchestrator=SimpleNamespace(),
     )
 
+    class QuietWindow(QWidget):
+        def __init__(self, *_a: object, **_k: object) -> None:
+            super().__init__()
+            self._force_quit = True
+            self.orchestrator = fake_seat.orchestrator
+            self.inbound_runtime = None
+            self.ipc_client = None
+            self.ipc_server = None
+            self._pending_store = SimpleNamespace(list=lambda: [])
+            self._orphan_ingest_stop = None
+            self.sms_ingest = None
+            self.sms_watcher = None
+            self.sms_auto_reply = None
+            self.config = {}
+
+        def setup_tray(self, app: object) -> None:
+            del app
+
+        def queue_pending_confirms(self, parked: object) -> None:
+            del parked
+
+    recovered: list[object] = []
+    done = threading.Event()
+
+    def recover(config: object = None) -> bool:
+        recovered.append(config)
+        done.set()
+        return False
+
+    async def _noop_startup(*_a: object, **_k: object) -> None:
+        return None
+
+    def _wait_exec(_self: object = None) -> int:
+        done.wait(timeout=5.0)
+        return 0
+
+    monkeypatch.setattr("arelis.presence.lock.PresenceLock", lambda path: _Lock())
+    monkeypatch.setattr(
+        "arelis.presence.ipc_token.claim_session_token", lambda *_a, **_k: None
+    )
+    monkeypatch.setattr(
+        "arelis.jobs.schedule.repoint_moved_tasks_on_launch", lambda: None
+    )
+    monkeypatch.setattr(launch_mod, "apply_first_run_glass", lambda cfg, **_k: cfg or {})
+    monkeypatch.setattr("arelis.core.seat.build_seat", lambda *_a, **_k: fake_seat)
+    monkeypatch.setattr(
+        launch_mod, "VoiceService", lambda *_a, **_k: SimpleNamespace(stt=None)
+    )
+    monkeypatch.setattr(
+        launch_mod,
+        "MemoryIndexer",
+        lambda *_a, **_k: SimpleNamespace(join_writes=lambda timeout_s=0: None),
+    )
+    monkeypatch.setattr("arelis.ui.app.ArelisWindow", QuietWindow)
+    monkeypatch.setattr(QApplication, "exec", _wait_exec)
+    monkeypatch.setattr("arelis.i18n.apply_language", lambda *_a, **_k: None)
+    monkeypatch.setattr(launch_mod, "_present_at_startup", lambda window: None)
+    monkeypatch.setattr(
+        "arelis.ui.update_prompt.schedule_update_check", lambda *_a, **_k: None
+    )
+    monkeypatch.setattr(launch_mod, "_start_activation_listener", lambda *_a, **_k: None)
+    monkeypatch.setattr(launch_mod, "_start_sentinel_child", lambda: None)
+    monkeypatch.setattr(
+        "arelis.ui.launch.install_owned_inbound_off_ui", lambda *_a, **_k: None
+    )
+    monkeypatch.setattr("arelis.presence.lock.external_core_available", lambda _c: False)
+    monkeypatch.setattr(
+        launch_mod, "ConfirmPersister", lambda *_a, **_k: SimpleNamespace(start=lambda: None)
+    )
+    monkeypatch.setattr(launch_mod, "run_model_preflight", _noop_startup)
+    monkeypatch.setattr(launch_mod, "run_model_warmup", _noop_startup)
+    monkeypatch.setattr(launch_mod, "run_auto_lessons", _noop_startup)
+    monkeypatch.setattr(launch_mod, "prefix_warmup_for", lambda *_a, **_k: None)
+    monkeypatch.setattr("arelis.tools.gpu_lease.recover_paused_server", recover)
+
+    config = {"llamacpp": {"base_url": "http://127.0.0.1:8090"}}
+    assert launch_mod.run_ui(config, background=True) == 0
+    assert recovered, "run_ui must call recover_paused_server"
+    assert recovered[0] is config
