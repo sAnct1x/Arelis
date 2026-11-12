@@ -537,7 +537,13 @@ class ConversationStage(GlassFrame):
         self._idle_mode = want
         self.set_fill_alpha(0)
         self.set_pulse_rim(False)
-        if want and not self.chat.has_messages:
+        # In Filament the open chat tile holds the transcript and composer, and
+        # the void is the main window's face. An empty thread with the tile open
+        # (History "new") keeps the tile as _filament_mount_chat seats it.
+        win = self.window() if getattr(self, "_filament_desk", False) else None
+        tile_open = bool(getattr(win, "_filament_chat_open", False))
+        face = want and not tile_open
+        if face and not self.chat.has_messages:
             self.chat.view.hide()
             self.chat.empty.show()
             if hasattr(self.chat.empty, "set_animating"):
@@ -547,8 +553,8 @@ class ConversationStage(GlassFrame):
                 self.chat.empty.set_animating(False)
             self.chat.empty.hide()
             if not self.chat._view_parked:
-                self.chat.view.show()
-        self._place_composer(want)
+                self.chat.view.setVisible(self.chat.has_messages or not tile_open)
+        self._place_composer(face)
         self._sync_parked_orbit(want)
         self._sync_composer_buttons()
         if getattr(self, "_filament_desk", False):
