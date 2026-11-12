@@ -179,11 +179,14 @@ def test_reworded_owner_fact_updates_row_but_new_value_does_not(
             source="proposed",
             status="active",
         )
-        for text in (
-            "My finder scope is a 9x50 right angle finder.",
-            "The finder on my telescope is a right angle 9x50 finderscope.",
-        ):
-            assert store.add_fact(text, source="explicit", status="active") == first
+        assert (
+            store.add_fact(
+                "My finder scope is a 9x50 right angle finder.",
+                source="explicit",
+                status="active",
+            )
+            == first
+        )
         other = store.add_fact(
             "Dana's finder scope is an 8x50 right-angle finder.",
             source="explicit",
@@ -201,5 +204,44 @@ def test_reworded_owner_fact_updates_row_but_new_value_does_not(
         )
         assert len({first, other, planet, swapped}) == 4
         assert len(_active(store)) == 4
+        for pair in (
+            (
+                "My favourite planet to observe is Saturn",
+                "My least favourite planet to observe is Saturn",
+            ),
+            ("I prefer Fahrenheit over Celsius", "I prefer Celsius over Fahrenheit"),
+            ("I fly from Boston to Denver", "I fly from Denver to Boston"),
+            ("Sam is older than Ella", "Ella is older than Sam"),
+            (
+                "I am allergic to penicillin but not amoxicillin",
+                "I am allergic to amoxicillin but not penicillin",
+            ),
+            ("My wife is called Ana", "My ex-wife is called Ana"),
+            ("I observe from the backyard", "I used to observe from the backyard"),
+            ("I observe planets from the backyard", "I rarely observe planets from the backyard"),
+            ("I can observe from the backyard", "I cannot observe from the backyard"),
+            ("I like observing in winter", "I dont like observing in winter"),
+        ):
+            ids = {store.add_fact(text, source="explicit", status="active") for text in pair}
+            assert len(ids) == 2, pair
+    finally:
+        store.close()
+
+
+def test_owner_name_that_is_a_common_word_only_strips_as_the_owner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path))
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "profile.yaml").write_text("name: Will\n", encoding="utf-8")
+    store = MemoryStore(tmp_path / "memory.db")
+    try:
+        owner = store.add_fact("Will's scope is a Dobsonian", source="explicit", status="active")
+        assert (
+            store.add_fact("My scope is a Dobsonian", source="explicit", status="active") == owner
+        )
+        sell = store.add_fact("I will sell my scope", source="explicit", status="active")
+        keep = store.add_fact("I sell my scope", source="explicit", status="active")
+        assert len({owner, sell, keep}) == 3
     finally:
         store.close()

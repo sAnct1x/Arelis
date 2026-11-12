@@ -28,30 +28,28 @@ _FILLER = frozenset(
      "with", "and", "that", "this", "it", "s"}
 )
 _SAME_WORD = {"has": "have"}
-_NEGATIONS = frozenset({"not", "no", "never", "nor", "without", "t"})
-_NUMBER_WORDS = frozenset(
-    {"zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
-     "ten", "eleven", "twelve", "twenty", "hundred", "thousand", "million",
-     "first", "second", "third", "half", "dozen"}
-)
-# "it's" and friends are contractions, not someone else's possession.
-_NOT_POSSESSORS = frozenset(
-    {"it", "that", "there", "here", "what", "who", "he", "she", "let", "where"}
-)
-_POSSESSIVE = re.compile(r"\b([a-z0-9]+)'s\b")
-# One-sided extra words are tolerated only up to this share of the longer
-# wording: "the finder on my telescope" adds "telescope", a new claim adds more.
-_NEAR_DUP_MIN_SHARE = 0.8
+# "can't", "cant" and "cannot" are one negation, so each spelling says "not".
+_NEGATION_FORMS = {
+    "cannot": ("can", "not"), "cant": ("can", "not"), "wont": ("will", "not"),
+    "dont": ("do", "not"), "doesnt": ("does", "not"), "didnt": ("did", "not"),
+    "isnt": ("is", "not"), "arent": ("are", "not"), "wasnt": ("was", "not"),
+    "werent": ("were", "not"), "hasnt": ("has", "not"), "havent": ("have", "not"),
+    "shouldnt": ("should", "not"), "couldnt": ("could", "not"),
+    "wouldnt": ("would", "not"),
+}
 
-_owner_cache: tuple[tuple[str, int], re.Pattern[str] | None] | None = None
+_OwnerPatterns = tuple[re.Pattern[str], re.Pattern[str]]
+_owner_cache: tuple[tuple[str, int], _OwnerPatterns | None] | None = None
 
 
-def _owner_name_pattern() -> re.Pattern[str] | None:
-    """The owner's own name from profile.yaml (name, prefer_called), or None.
+def _owner_name_patterns() -> _OwnerPatterns | None:
+    """The owner's name at the start of a fact, and as "Name's" anywhere.
 
-    Read from the same file the standing profile rides in, so "Dana's finder"
-    and "my finder" are one claim for Dana and nobody's name is baked in.
-    Cached on the file's mtime because every stored row is compared per save.
+    Read from profile.yaml (name, prefer_called), so "Dana's finder" and
+    "my finder" are one claim for Dana and nobody's name is baked in. Only
+    those two places mean the owner: for a user named Will, "I will sell
+    my scope" keeps its "will". Cached on the file's mtime because every
+    stored row is compared per save.
     """
     global _owner_cache
     from arelis.profile import load_standing_profile, resolve_profile_path
@@ -68,12 +66,15 @@ def _owner_name_pattern() -> re.Pattern[str] | None:
     for field in ("name", "prefer_called"):
         raw = (fields.get(field) or "").lower().translate(_APOSTROPHES)
         words.update(w for w in re.findall(r"[a-z0-9]+", raw) if len(w) > 1)
-    pattern = None
+    patterns = None
     if words:
         names = "|".join(sorted((re.escape(w) for w in words), key=len, reverse=True))
-        pattern = re.compile(rf"\b(?:{names})(?:'s)?\b")
-    _owner_cache = (stamp, pattern)
-    return pattern
+        patterns = (
+            re.compile(rf"^\s*(?:{names})(?:'s)?\b"),
+            re.compile(rf"\b(?:{names})'s\b"),
+        )
+    _owner_cache = (stamp, patterns)
+    return patterns
 
 
 def _lower(text: str) -> str:
@@ -81,44 +82,38 @@ def _lower(text: str) -> str:
 
 
 def _strip_owner_names(raw: str) -> str:
-    pattern = _owner_name_pattern()
     raw = _THE_USER.sub(" ", raw)
-    return pattern.sub(" ", raw) if pattern is not None else raw
+    patterns = _owner_name_patterns()
+    if patterns is None:
+        return raw
+    at_start, possessive = patterns
+    return possessive.sub(" ", at_start.sub(" ", raw))
 
 
 def normalize_fact_text(text: str) -> str:
     """Canonical form for matching two wordings of the same fact."""
     raw = _FACT_OWNER.sub("", _lower(text))
-    pattern = _owner_name_pattern()
-    if pattern is not None:
-        match = pattern.match(raw)
+    patterns = _owner_name_patterns()
+    if patterns is not None:
+        match = patterns[0].match(raw)
         if match is not None:
             raw = raw[match.end() :]
     raw = re.sub(r"[^a-z0-9]+", " ", raw)
     return " ".join(raw.split())
 
 
-def _fact_signature(text: str) -> tuple[list[str], frozenset[str], bool]:
-    """Content words, the values that must agree, and whether it is negated."""
-    raw = _strip_owner_names(_lower(text))
-    possessors = {
-        f"{m}'s" for m in _POSSESSIVE.findall(raw) if m not in _NOT_POSSESSORS
-    }
-    tokens = re.findall(r"[a-z0-9]+", raw)
-    negated = any(t in _NEGATIONS for t in tokens)
-    words = [
-        _SAME_WORD.get(t, t)
-        for t in tokens
-        if t not in _FILLER and t not in _OWNER_WORDS and t not in _NEGATIONS
-    ]
-    values = frozenset(
-        {t for t in words if any(c.isdigit() for c in t) or t in _NUMBER_WORDS}
-        | possessors
-    )
-    return words, values, negated
+def _content_words(text: str) -> list[str]:
+    """The fact's content words in order, with owner words and filler dropped."""
+    raw = re.sub(r"n't\b", "nt", _strip_owner_names(_lower(text)))
+    words: list[str] = []
+    for token in re.findall(r"[a-z0-9]+", raw):
+        for part in _NEGATION_FORMS.get(token, (token,)):
+            if part not in _FILLER and part not in _OWNER_WORDS:
+                words.append(_SAME_WORD.get(part, part))
+    return words
 
 
-def _fold_compounds(words: list[str], other: set[str]) -> set[str]:
+def _fold_compounds(words: list[str], other: list[str]) -> list[str]:
     """Join "finder scope" into "finderscope" when the other wording has it."""
     out: list[str] = []
     i = 0
@@ -129,7 +124,7 @@ def _fold_compounds(words: list[str], other: set[str]) -> set[str]:
             continue
         out.append(words[i])
         i += 1
-    return {_stem(w) for w in out}
+    return [_stem(w) for w in out]
 
 
 def _stem(word: str) -> str:
@@ -141,12 +136,12 @@ def _stem(word: str) -> str:
 def _facts_are_near_duplicates(left: str, right: str) -> bool:
     """True when two facts should share one row.
 
-    Merge when the wordings normalize the same (owner's "my", "the user's",
-    or own name stripped; punctuation and hyphens ignored), or when one
-    wording's content words all appear in the other with only a small
-    one-sided addition. Any value that differs (a number, a date, someone
-    else's possessive, a negation) blocks the merge, and so does any swapped
-    word (Saturn vs Jupiter), so distinct claims never collapse.
+    Merge only when both wordings have the same content words in the same
+    order, once the owner's "my", "the user's" or own name, filler words,
+    punctuation, hyphens, plurals and "finder scope" vs "finderscope" are
+    set aside. Any added word (least, ex, used, not), any swapped word
+    (Saturn vs Jupiter, 8x50 vs 9x50) and any reordering (Boston to Denver
+    vs Denver to Boston) keeps the facts apart.
     """
     norm_left = normalize_fact_text(left)
     norm_right = normalize_fact_text(right)
@@ -154,18 +149,13 @@ def _facts_are_near_duplicates(left: str, right: str) -> bool:
         return False
     if norm_left == norm_right:
         return True
-    words_left, values_left, neg_left = _fact_signature(left)
-    words_right, values_right, neg_right = _fact_signature(right)
-    if values_left != values_right or neg_left != neg_right:
+    words_left = _content_words(left)
+    words_right = _content_words(right)
+    if not words_left or not words_right:
         return False
-    set_left = _fold_compounds(words_left, set(words_right))
-    set_right = _fold_compounds(words_right, set(words_left))
-    if not set_left or not set_right:
-        return False
-    small, large = sorted((set_left, set_right), key=len)
-    if not small <= large:
-        return False
-    return len(small) / len(large) >= _NEAR_DUP_MIN_SHARE
+    return _fold_compounds(words_left, words_right) == _fold_compounds(
+        words_right, words_left
+    )
 
 
 def _fact_rows(

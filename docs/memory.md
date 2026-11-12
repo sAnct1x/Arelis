@@ -6,12 +6,18 @@ the date it was first saved and the date it last changed. If she hears the
 same fact again in slightly different words, she updates the existing fact
 instead of adding a second copy.
 
-"My finder is a 9x50 right-angle finder", "Dana's finder is a 9x50 right
-angle finder", and "the finder on my telescope is a right angle 9x50
-finderscope" count as one fact. She recognises your own name from the `name`
-and `prefer_called` lines in `data/profile.yaml`, so fill those in. A changed
-number or value ("8x50" instead of "9x50", Jupiter instead of Saturn), someone
-else's thing ("my sister's finder"), or a "not" keeps the facts separate.
+"My finder is a 9x50 right-angle finder" and "Dana's finder is a 9x50 right
+angle finder" count as one fact: the same words in the same order, with only
+"my", your own name, small words like "a" or "the", and punctuation changed.
+She recognises your own name from the `name` and `prefer_called` lines in
+`data/profile.yaml`, so fill those in. Your name counts only at the start of a
+fact or as "Dana's", so for someone called Will, "I will sell my scope" keeps
+its "will". A changed number or value ("8x50" instead of "9x50", Jupiter
+instead of Saturn), someone else's thing ("my sister's finder"), an added word
+("least favourite", "ex-wife", "used to", "not", "cannot"), or the same words
+in a new order ("Boston to Denver" and "Denver to Boston") keeps the facts
+separate. A bigger rewording, such as "the finder on my telescope is a right
+angle 9x50 finderscope", is saved as its own fact.
 
 ## See, edit, or forget what she remembers
 
