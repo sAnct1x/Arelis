@@ -98,6 +98,9 @@ _STOPWORDS = frozenset(
         "do",
         "does",
         "did",
+        "have",
+        "has",
+        "had",
         "can",
         "could",
         "would",
@@ -117,6 +120,12 @@ _STOPWORDS = frozenset(
 )
 
 _TOKEN = re.compile(r"[a-z0-9]+")
+# Sub-question breaks: sentence ends, and ", and what ..." style joins.
+_SUBQUESTION_SPLIT = re.compile(
+    r"[?!;]+|\.\s+|,?\s+(?:and|also)\s+"
+    r"(?=(?:what|which|who|whom|whose|where|when|why|how)\b)",
+    re.IGNORECASE,
+)
 
 EmbedFn = Callable[[str, list[str]], Awaitable[list[list[float]]]]
 ModelCheckFn = Callable[[], Awaitable[bool]]
@@ -170,20 +179,28 @@ def _token_variants(token: str) -> set[str]:
 
 
 def keyword_score(query: str, text: str) -> float:
-    """Fraction of query content tokens that also appear in the memory text."""
-    query_tokens = tokenize_for_match(query)
-    if not query_tokens:
-        return 0.0
+    """Best fraction of one sub-question's content tokens found in the text.
+
+    A compound ask ("how long are my exposures, and what finder do I have?")
+    is scored per sub-question, as if each were asked alone, so the words of
+    one part do not dilute a fact that answers the other part.
+    """
     text_tokens = tokenize_for_match(text)
     if not text_tokens:
         return 0.0
     text_variants: set[str] = set()
     for token in text_tokens:
         text_variants.update(_token_variants(token))
-    hits = sum(
-        1 for token in query_tokens if _token_variants(token) & text_variants
-    )
-    return hits / len(query_tokens)
+    best = 0.0
+    for part in [query, *_SUBQUESTION_SPLIT.split(query)]:
+        query_tokens = tokenize_for_match(part)
+        if not query_tokens:
+            continue
+        hits = sum(
+            1 for token in query_tokens if _token_variants(token) & text_variants
+        )
+        best = max(best, hits / len(query_tokens))
+    return best
 
 
 def recency_score(
@@ -330,19 +347,85 @@ def select_relevant(
     has_embeddings: bool,
     limit: int = MAX_ITEMS,
 ) -> list[MemoryItem]:
-    """Keep items at or above the threshold, then apply the count cap."""
+    """Keep items at or above the threshold, then apply the count cap.
+
+    Near-duplicate rows of one fact take a single slot (the best-scored one).
+    """
     threshold = RELEVANCE_THRESHOLD if has_embeddings else RELEVANCE_THRESHOLD_NO_EMBED
     cap = max(0, min(int(limit), MAX_ITEMS))
     picked: list[MemoryItem] = []
+    picked_keys: list[_DuplicateKey] = []
     for row in scored:
         if row.score < threshold:
             continue
         if not has_embeddings and row.keyword <= 0.0:
             continue
+        key = _duplicate_key(row.item.text)
+        if any(_near_duplicate(key, seen) for seen in picked_keys):
+            continue
         picked.append(row.item)
+        picked_keys.append(key)
         if len(picked) >= cap:
             break
     return picked
+
+
+_NUMBER_WORDS = frozenset(
+    {
+        "zero", "one", "two", "three", "four", "five", "six", "seven", "eight",
+        "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen",
+        "sixteen", "seventeen", "eighteen", "nineteen", "twenty", "thirty",
+        "forty", "fifty", "sixty", "seventy", "eighty", "ninety", "hundred",
+        "thousand", "million", "half", "dozen",
+    }
+)
+_POSSESSIVE = re.compile(r"\b([a-z]+)['\u2019]s\b")
+# "user's" is the owner; the rest are contractions, not possessives.
+_NOT_OTHER_OWNER = frozenset(
+    {"user", "it", "that", "there", "here", "what", "who", "where", "he", "she", "let"}
+)
+_NEGATION = re.compile(r"\b(?:not|no|never)\b|n['\u2019]t\b")
+
+
+@dataclass(frozen=True, slots=True)
+class _DuplicateKey:
+    tokens: frozenset[str]
+    numbers: frozenset[str]
+    possessives: frozenset[str]
+    negated: bool
+
+
+def _duplicate_key(text: str) -> _DuplicateKey:
+    lowered = text.lower()
+    tokens = frozenset(tokenize_for_match(text))
+    return _DuplicateKey(
+        tokens=tokens,
+        numbers=frozenset(
+            token
+            for token in _TOKEN.findall(lowered)
+            if any(char.isdigit() for char in token) or token in _NUMBER_WORDS
+        ),
+        possessives=frozenset(
+            name
+            for name in _POSSESSIVE.findall(lowered)
+            if name not in _NOT_OTHER_OWNER
+        ),
+        negated=bool(_NEGATION.search(lowered)),
+    )
+
+
+def _near_duplicate(left: _DuplicateKey, right: _DuplicateKey) -> bool:
+    """Same fact reworded: 80% shared words and no change of number,
+    whose thing it is ("sister's"), or negation."""
+    if not left.tokens or not right.tokens:
+        return False
+    if (
+        left.numbers != right.numbers
+        or left.possessives != right.possessives
+        or left.negated != right.negated
+    ):
+        return False
+    return len(left.tokens & right.tokens) >= 0.8 * len(left.tokens | right.tokens)
 
 
 def _clip_item_text(text: str) -> str:

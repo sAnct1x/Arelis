@@ -258,3 +258,41 @@ async def test_hanging_embed_falls_back_to_keyword_without_stalling_the_turn(
     # Well under the 300s chat HTTP timeout that a bare embed() would inherit.
     assert elapsed < 10
     store.close()
+
+
+def test_compound_ask_keeps_a_second_relevant_fact_once(tmp_path) -> None:
+    """Each part of a two-part ask can bring its fact; duplicates take one slot."""
+    store = MemoryStore(tmp_path / "memory.db")
+    saturn = _add_fact(store, "Saturn exposures are 30 seconds tonight.")
+    finder_ids = {
+        _add_fact(store, text)
+        for text in (
+            "My finder scope is a 9x50 right angle finder.",
+            "Our finder scope is a 9x50 right-angle finder.",
+            "Finder scope: 9x50 right angle finder.",
+        )
+    }
+    assert len(finder_ids) == 3
+    sister = _add_fact(store, "My sister's finder scope is a 9x50 right angle finder.")
+    noise = [
+        _add_fact(store, text)
+        for text in (
+            "The user has a long commute.",
+            "I have two cats.",
+            "The user's favorite tools are Japanese saws.",
+        )
+    ]
+
+    picked = retrieve_relevant_memories(
+        store,
+        "Quick one, no tools please: how long are my Saturn exposures tonight, "
+        "and what finder do I have?",
+    )
+    picked_ids = [item.item_id for item in picked]
+    assert f"fact:{saturn}" in picked_ids
+    assert len([i for i in picked_ids if int(i.split(":")[1]) in finder_ids]) == 1
+    # Someone else's matching thing is a different fact, not a duplicate.
+    assert f"fact:{sister}" in picked_ids
+    for noise_id in noise:
+        assert f"fact:{noise_id}" not in picked_ids
+    store.close()
