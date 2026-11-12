@@ -547,21 +547,30 @@ class ImageTool:
             # Off the asyncio thread so a slow slot save (and the stop
             # that follows) cannot freeze chat lines or Stop. If Stop
             # cancels this task mid-save, wait for acquire to finish
-            # and let the finally block restore llama-server if the
-            # lease already stopped it.
+            # even if Stop is pressed again, then let the finally
+            # block restore llama-server if the lease already stopped it.
             acquire_done = asyncio.create_task(
                 asyncio.to_thread(acquire, self._config)
             )
             try:
                 await asyncio.shield(acquire_done)
             except asyncio.CancelledError:
-                try:
-                    await asyncio.shield(acquire_done)
+                # A later Stop can cancel this wait too. Keep waiting
+                # until acquire actually finishes so finally can restore.
+                while not acquire_done.done():
+                    try:
+                        await asyncio.shield(acquire_done)
+                    except asyncio.CancelledError:
+                        continue
+                    except Exception:
+                        # acquire already cleared the hold if it failed.
+                        break
+                if (
+                    acquire_done.done()
+                    and not acquire_done.cancelled()
+                    and acquire_done.exception() is None
+                ):
                     acquired = True
-                except Exception:
-                    # acquire already cleared the hold if it failed. Re-raise
-                    # CancelledError so Stop can finish.
-                    pass
                 raise
             acquired = True
             if self._cancelled():

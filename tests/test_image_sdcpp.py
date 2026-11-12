@@ -578,6 +578,56 @@ def test_acquire_does_not_block_the_event_loop_during_a_slow_save(
     assert "tick" in order[start + 1 : end]
 
 
+def test_second_stop_during_slot_save_still_restores_llama_server(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A second Stop mid-save must still wait for acquire and restore chat."""
+    import time
+
+    from arelis.llm import llama_launch
+
+    events = _install_lease_spies()
+    started = asyncio.Event()
+    loop_holder: dict[str, asyncio.AbstractEventLoop] = {}
+
+    def slow_save(url: str) -> bool:
+        del url
+        loop_holder["loop"].call_soon_threadsafe(started.set)
+        time.sleep(0.4)
+        return True
+
+    monkeypatch.setattr(llama_launch, "save_slot", slow_save)
+    _patch_sdcpp_ready(monkeypatch, tmp_path)
+    config = {
+        "llamacpp": {"base_url": "http://127.0.0.1:8080"},
+        "tools": {"image": {"backend": "sdcpp", "sdcpp": {"idle_timeout_s": 90}}},
+    }
+    tool = ImageTool(
+        comfy_url="http://127.0.0.1:9",
+        output_dir=str(tmp_path / "out"),
+        backend="sdcpp",
+        config=config,
+    )
+
+    async def _run() -> None:
+        loop_holder["loop"] = asyncio.get_running_loop()
+        task = asyncio.create_task(tool.run(prompt="a red fox"))
+        await started.wait()
+        await asyncio.sleep(0.05)
+        task.cancel()
+        await asyncio.sleep(0.05)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    asyncio.run(_run())
+    assert [item[0] for item in events] == ["stop", "ensure"]
+    assert gpu_lease.is_held() is False
+    assert gpu_lease.is_generating() is False
+
+
 def test_next_launch_restores_llama_if_a_picture_left_it_stopped(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
