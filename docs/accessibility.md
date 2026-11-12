@@ -14,9 +14,11 @@ open is visible, and in Filament the transcript stays on the chat tile.
 ## Settings, memory
 
 Press **Ctrl+,** to open Settings from the main window or the chat window,
-in every theme. Outside Filament the title bar's settings button is also
-named Settings. In Settings, the tab strip is named Settings tabs and the
-memory tab is named memory.
+in every theme. Focus starts on Close; Tab twice reaches the Settings tabs,
+and the arrow keys pick a tab. From memory, Tab twice reaches the list.
+Outside Filament the title bar's settings button is also named Settings.
+In Settings, the tab strip is named Settings tabs and the memory tab is
+named memory.
 
 On the memory tab:
 

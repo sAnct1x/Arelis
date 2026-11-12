@@ -18,8 +18,9 @@ knowledge.
 - Select one or more facts and click **forget** to stop her using them. You can
   Shift-click or Ctrl-click to select more than one.
 - By keyboard: press **Ctrl+,** to open Settings (it works from the chat
-  window too), Ctrl+Tab until the memory tab shows, then Tab to the list and
-  use the arrow keys. Enter edits the selected fact and Delete forgets the selected facts. In the edit box, Tab
+  window too). Tab twice to reach the Settings tabs, use the arrow keys to
+  pick memory, then Tab twice to the list and use the arrow keys. Enter edits
+  the selected fact and Delete forgets the selected facts. In the edit box, Tab
   moves to **Save** and **Cancel**. Screen reader names are in
   [Accessibility](accessibility.md).
 
