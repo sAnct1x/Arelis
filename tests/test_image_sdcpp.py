@@ -184,7 +184,7 @@ def test_lease_restores_llama_server_when_generation_is_cancelled(
     assert [item[0] for item in events] == ["stop", "ensure"]
 
 
-def test_successful_run_clears_generating_so_chat_returns_immediately(
+def test_successful_run_restores_chat_immediately(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     events = _install_lease_spies()
@@ -202,11 +202,8 @@ def test_successful_run_clears_generating_so_chat_returns_immediately(
     result = asyncio.run(tool.run(prompt="a red fox"))
     assert result.ok is True
     assert gpu_lease.is_generating() is False
-    assert gpu_lease.is_held() is True
-    assert [item[0] for item in events] == ["stop"]
-    gpu_lease.yield_to_chat()
-    assert [item[0] for item in events] == ["stop", "ensure"]
     assert gpu_lease.is_held() is False
+    assert [item[0] for item in events] == ["stop", "ensure"]
 
 
 def test_quit_stops_in_flight_sdcli_before_starting_llama_server() -> None:
@@ -401,3 +398,51 @@ def test_image_edit_is_not_yet_unless_comfy_is_configured(
     result = asyncio.run(tool.run(prompt="make this a watercolor", path=str(source)))
     assert result.ok is False
     assert NOT_YET in result.output
+
+
+def test_picture_lease_posts_pause_wording_to_chat(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from arelis.core.events import EventType
+    from arelis.tools.gpu_lease import CHAT_PAUSED, CHAT_RESUMING
+    from arelis.tools.image import schedule_image_progress
+
+    posted: list[object] = []
+
+    class _Bus:
+        async def publish(self, event: object) -> None:
+            posted.append(event)
+
+    _install_lease_spies()
+    _patch_sdcpp_ready(monkeypatch, tmp_path)
+    config = {
+        "llamacpp": {"base_url": "http://127.0.0.1:8080"},
+        "tools": {"image": {"backend": "sdcpp", "sdcpp": {"idle_timeout_s": 90}}},
+    }
+    tool = ImageTool(
+        comfy_url="http://127.0.0.1:9",
+        output_dir=str(tmp_path / "out"),
+        backend="sdcpp",
+        config=config,
+    )
+    bus = _Bus()
+    tool.set_progress(lambda line: schedule_image_progress(bus, line))
+
+    async def _run() -> object:
+        result = await tool.run(prompt="a red fox")
+        # Let the REPLY_NOTE tasks scheduled in the lease finally block run.
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        return result
+
+    result = asyncio.run(_run())
+    assert result.ok is True
+    notes = [
+        event
+        for event in posted
+        if getattr(event, "type", None) == EventType.REPLY_NOTE
+    ]
+    messages = [str(event.payload.get("message") or "") for event in notes]
+    assert CHAT_PAUSED in messages
+    assert CHAT_RESUMING in messages
+    assert all(not getattr(event, "payload", {}).get("image_progress") for event in notes)

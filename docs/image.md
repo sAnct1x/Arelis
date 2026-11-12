@@ -12,16 +12,20 @@ two minutes after chat has been paused.
 
 The first time you ask for a picture, Arelis downloads about 5 GB of
 model files (Apache-2.0) and a small Windows program (MIT). Files over
-50 MB need an Allow card. If a download fails or you stop it, unfinished
-files are deleted.
+50 MB need an Allow card, even if pictures are set not to ask first in
+Settings. If a download fails or you stop it, unfinished files are
+deleted.
 
 While a picture is being made, chat is paused so the image model can use
-the graphics card. The window says so in plain words. When the picture
-is done, or if the picture program fails, is stopped, or Arelis quits,
-chat is started again. A message typed while a picture is in progress
-waits, then is answered after chat is back. A short pause after a
-finished picture lets you ask for another one without loading the chat
-model in between.
+the graphics card. Chat shows that in plain words: chat is paused while
+the picture is made, usually a couple of minutes, then about a minute to
+bring chat back. When the picture is done, chat is started again right
+away. If the picture program fails, is stopped, or Arelis quits, chat
+is also started again. A message typed while a picture is in progress
+waits, then is answered after chat is back.
+
+In a narrow chat window (around 380 pixels wide), the message box shrinks
+and wraps so the text does not cover the clear or attach buttons.
 
 You can ask for one to four variations, reuse a seed, pick a size or
 aspect, or fold in a style. Each picture is saved under `outputs/images/`

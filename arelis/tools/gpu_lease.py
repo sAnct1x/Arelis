@@ -16,7 +16,8 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
-# Keep the card for a follow-up picture, then bring chat back.
+# Idle delay used only when a caller still schedules one. A successful
+# picture restores chat right away so the next message is not left waiting.
 _IDLE_S = 90.0
 
 CHAT_PAUSED = (
@@ -69,9 +70,9 @@ def _launch_args(config: dict[str, Any] | None) -> list[str] | None:
     fn = _args_fn
     if fn is not None:
         return fn(config)
-    from arelis.llm.llama_launch import launch_args_for
+    from arelis.llm.llama_launch import restore_args
 
-    return launch_args_for(config)
+    return restore_args(config)
 
 
 def _stop(base_url: str) -> bool:
@@ -161,17 +162,15 @@ def acquire(config: dict[str, Any] | None = None) -> None:
 
 
 def mark_generation_done(*, success: bool, idle_s: float | None = None) -> None:
-    """End the active job. Restore chat now on failure, or after a short idle."""
+    """End the active job. Restore chat now. idle_s is kept for callers."""
+    del success, idle_s
     global _generating
     with _lock:
         _generating = False
         held = _held
     if not held:
         return
-    if success:
-        schedule_release(idle_s)
-    else:
-        release()
+    release()
 
 
 def schedule_release(delay_s: float | None = None) -> None:

@@ -785,16 +785,20 @@ async def execute_call(
         )
         ready = image_ready_event(name, result)
         if ready is not None:
+            loop._image_ready_ok = True
             await loop.bus.publish(ready)
             # A finished generate ends the turn. Otherwise the model
             # re-calls image and spams Allow, the same class as a double send.
             # An edit or a diagram stays open so the model can write it up.
+            # Mark the line as tool output so the next turn does not treat
+            # "Image ready: <path>" as her writing and invent a path.
             if name == "image" and data_dict and data_dict.get("path"):
                 path = str(data_dict["path"])
                 await loop._finish(
                     f"Image ready: {path}.",
                     sources,
                     streamed="",
+                    passthrough_tool="image",
                 )
                 return True
         if (

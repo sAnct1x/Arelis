@@ -255,6 +255,16 @@ def _image_download_pause(args: dict[str, Any] | None) -> bool:
     return download_needs_allow(args)
 
 
+def _download_allow_required(name: str, args: dict[str, Any] | None) -> bool:
+    """True when a first-use model download needs its own Allow card."""
+    tool = (name or "").strip()
+    if tool == "image_edit":
+        return _image_download_pause(args)
+    if tool == "image":
+        return _sdcpp_download_pause(args)
+    return False
+
+
 def _sdcpp_download_pause(args: dict[str, Any] | None) -> bool:
     """First-use klein 4B download is not covered by the ask alone."""
     from arelis.config import load_config
@@ -426,6 +436,11 @@ def evaluate_confirm(
     and a read action both return False. The loop rejects unknown names
     before it reaches here.
 
+    A first-use picture download over 50 MB always pauses, including
+    when confirm_image is off: that toggle is for making a picture,
+    not for fetching several gigabytes. The download check runs before
+    the toggle so the Allow card cannot be skipped.
+
     Voice mode (filament) pauses on sends and deletes, and on other
     external writes unless the user's own ask named the tool and
     ask_is_grant is on. Destructive calls still pause so she can ask
@@ -438,6 +453,8 @@ def evaluate_confirm(
     work unless ``ask_is_grant`` is off. Pay and ``run_script`` still pause
     when asked.
     """
+    if _download_allow_required(name, args):
+        return True
     if _CONFIRM_MODE == "voice":
         if (name or "").strip() == "run_script":
             return True

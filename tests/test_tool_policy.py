@@ -319,3 +319,13 @@ async def test_model_send_email_still_confirms_and_locks_the_draft(
     assert "Stuck in traffic" in card
     assert "Totally different" not in card
     assert "Model invention" not in card
+
+
+def test_first_use_download_pauses_even_when_confirm_image_is_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "arelis.tools.policy._sdcpp_download_pause", lambda args=None: True
+    )
+    assert evaluate_confirm("image", {}, confirm_image=False) is True
+    assert evaluate_confirm("image", {}, confirm_image=False, asked=True) is True

@@ -857,6 +857,7 @@ class AgentLoop:
         self._agenda_create_ok = False
         self._agenda_create_failed = False
         self._agenda_create_where = ""
+        self._image_ready_ok = False
         # What is currently painted in the chat bubble, so a hard cancel can
         # keep it instead of replacing a half-written answer with "Stopped."
         self._painted = ""
@@ -2174,9 +2175,17 @@ class AgentLoop:
         final = strip_thinking_text(text).strip()
         from arelis.core.claims import (
             guard_false_calendar_add,
+            guard_false_image_ready,
             guard_local_calendar_destination,
         )
 
+        revised = guard_false_image_ready(
+            final,
+            produced=bool(getattr(self, "_image_ready_ok", False)),
+        )
+        if revised != final:
+            final = revised
+            streamed = ""
         revised = guard_false_calendar_add(
             final,
             created=bool(getattr(self, "_agenda_create_ok", False)),

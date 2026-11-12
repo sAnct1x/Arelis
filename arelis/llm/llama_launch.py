@@ -75,7 +75,14 @@ _CHUNK = 1024 * 1024
 
 _lock = threading.Lock()
 _proc: subprocess.Popen[bytes] | None = None
+# Command line of the server we stopped or last started. Restore uses this
+# exact list so a restart does not add flags the original launch did not have.
+_saved_args: list[str] | None = None
 Cancel = Callable[[], bool]
+
+# Windows: leave the process outside Arelis's tree and job, like a manual start.
+_DETACHED_PROCESS = 0x00000008
+_CREATE_BREAKAWAY_FROM_JOB = 0x01000000
 
 
 class _MmprojCancelledError(Exception):
@@ -207,6 +214,37 @@ def launch_args_for(config: dict[str, Any] | None) -> list[str] | None:
         return None
 
 
+def restore_args(config: dict[str, Any] | None) -> list[str] | None:
+    """The command we stopped or started, unchanged. Built args only if none."""
+    with _lock:
+        saved = list(_saved_args) if _saved_args else None
+    if saved:
+        return saved
+    return launch_args_for(config)
+
+
+def _remember_args(args: list[str] | None) -> None:
+    global _saved_args
+    if not args:
+        return
+    _saved_args = list(args)
+
+
+def _cmdline_for_pid(pid: int) -> list[str] | None:
+    try:
+        import psutil
+    except ImportError:
+        return None
+    try:
+        cmd = psutil.Process(int(pid)).cmdline()
+    except Exception:
+        # The process may already have exited; keep the last saved command.
+        return None
+    if not cmd:
+        return None
+    return [str(part) for part in cmd]
+
+
 def one_token_payload(model: str = "") -> dict[str, Any]:
     """Readiness body. One token, no tools. /health cannot see a dead GPU."""
     payload: dict[str, Any] = {
@@ -275,6 +313,9 @@ def stop_server(base_url: str = "http://127.0.0.1:8080", *, timeout_s: float = 8
         proc = _proc
         _proc = None
         if proc is not None and proc.poll() is None:
+            remembered = _cmdline_for_pid(int(proc.pid))
+            if remembered:
+                _remember_args(remembered)
             log.info("Stopping llama-server (pid=%s) to free the GPU", proc.pid)
             stopped = _terminate_proc(proc, timeout_s=timeout_s) or stopped
     host, port = _listen(base_url)
@@ -332,6 +373,9 @@ def _kill_local_port(port: int) -> bool:
     for pid in pids:
         if pid <= 0 or pid == self_pid:
             continue
+        remembered = _cmdline_for_pid(int(pid))
+        if remembered:
+            _remember_args(remembered)
         log.info("Stopping leftover llama-server listener pid=%s port=%s", pid, port)
         if _terminate_pid(pid):
             killed = True
@@ -658,12 +702,13 @@ def _spawn(args: list[str]) -> subprocess.Popen[bytes]:
     if sys.platform == "win32":
         no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
         new_group = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
-        flags = no_window | new_group
+        flags = no_window | new_group | _DETACHED_PROCESS | _CREATE_BREAKAWAY_FROM_JOB
         if "--threads" in args:  # only llama_server_args with avatar headroom on adds it
             flags |= getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0x00004000)
         kwargs["creationflags"] = flags
     else:
         kwargs["start_new_session"] = True
+    _remember_args(args)
     log.info("Starting llama-server")
     try:
         return subprocess.Popen(args, **kwargs)

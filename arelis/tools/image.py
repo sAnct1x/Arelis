@@ -1088,16 +1088,17 @@ class ImageTool:
 
 
 def schedule_image_progress(bus: Any, line: str) -> None:
-    """Push a composer shimmer line without blocking the sampler poll."""
+    """Push pause wording to chat, or a composer shimmer for sampler lines."""
     import asyncio
 
     from arelis.core.events import Event, EventType
+    from arelis.tools.gpu_lease import CHAT_PAUSED, CHAT_RESUMING
 
+    if line in {CHAT_PAUSED, CHAT_RESUMING}:
+        event = Event(EventType.REPLY_NOTE, {"message": line})
+    else:
+        event = Event(EventType.STATUS, {"message": line, "image_progress": True})
     try:
-        asyncio.get_running_loop().create_task(
-            bus.publish(
-                Event(EventType.STATUS, {"message": line, "image_progress": True})
-            )
-        )
+        asyncio.get_running_loop().create_task(bus.publish(event))
     except RuntimeError:
         pass
