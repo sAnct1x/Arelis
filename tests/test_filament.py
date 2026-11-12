@@ -60,6 +60,42 @@ def test_filament_is_a_theme() -> None:
     assert confirm_mode() == "card"
 
 
+def test_filament_confirm_arms_without_a_card(arelis_window, qt_app) -> None:
+    """A persist card still shows in Filament, and typed yes stays a plain allow."""
+    from arelis.ui.settings_host import apply_window_theme
+
+    window = arelis_window()
+    apply_window_theme(window, "filament", persist=False)
+    try:
+        stage = window.conversation
+        stage.ask_confirm(
+            "c1",
+            "workspace",
+            "workspace()",
+            headline="delete note.txt",
+            batch_ok=True,
+            persist_ok=True,
+            persist_label="don't ask again about files",
+        )
+        qt_app.processEvents()
+        assert stage.confirm_open()
+        assert not stage.confirm.isHidden()
+        assert stage.confirm.allow_always.isVisible()
+        assert stage.confirm.allow_turn.isVisible()
+        assert stage.confirm.allow_always.isChecked() is False
+        assert stage.confirm.allow_turn.isChecked() is False
+        decided: list[tuple[str, bool]] = []
+        stage.confirm.decided.connect(
+            lambda _id, decision, batch: decided.append((decision, batch))
+        )
+        stage.input.setText("yes")
+        stage._submit()
+        assert decided == [("allow", False)]
+        assert not stage.confirm_open()
+    finally:
+        apply_window_theme(window, "sodium", persist=False)
+
+
 def test_filament_download_allow_card_shows_size_and_buttons(
     arelis_window, qt_app, monkeypatch, tmp_path
 ) -> None:

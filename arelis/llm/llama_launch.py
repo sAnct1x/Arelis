@@ -10,7 +10,9 @@ beside the weights when that file is already there.
 
 The picture file sits in the same directory as the model GGUF. If it is
 missing, it is downloaded there once. Arelis starts llama-server only when
-the chat port is down.
+the chat port is down. Built launch lines include
+``--slot-save-path`` so a picture can save and reload the chat cache.
+A replayed command is left unchanged.
 """
 
 from __future__ import annotations
@@ -144,7 +146,108 @@ def headroom_on(config: dict[str, Any] | None) -> bool:
     return not (isinstance(lc, dict) and lc.get(HEADROOM_KEY) is False)
 
 
+SLOT_SAVE_FILENAME = "chat.bin"
+_SLOT_HTTP_TIMEOUT_S = 60.0
+_saved_slot_id = 0
+
+
+def slot_save_dir() -> Path:
+    """Directory passed to llama-server --slot-save-path, under Arelis data."""
+    from arelis.paths import user_data_dir
+
+    path = user_data_dir() / "cache" / "llama-slots"
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        log.warning("Could not create the llama-server slot folder", exc_info=True)
+    return path
+
+
+def slot_save_file() -> Path:
+    return slot_save_dir() / SLOT_SAVE_FILENAME
+
+
+def clear_slot_file() -> None:
+    """Remove a leftover slot file. Failures are ignored."""
+    path = slot_save_dir() / SLOT_SAVE_FILENAME
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        log.info("Could not remove the saved chat slot file", exc_info=True)
+
+
+def _slot_id(base_url: str) -> int:
+    url = base_url.rstrip("/") + "/slots"
+    try:
+        response = httpx.get(url, timeout=2.0)
+    except httpx.HTTPError:
+        return 0
+    if response.status_code >= 400:
+        return 0
+    body = _json_body(response)
+    if isinstance(body, list):
+        for item in body:
+            if not isinstance(item, dict):
+                continue
+            raw = item.get("id", item.get("id_slot"))
+            if raw is None:
+                continue
+            try:
+                return int(raw)
+            except (TypeError, ValueError):
+                continue
+    return 0
+
+
+def _post_slot_action(base_url: str, slot_id: int, action: str) -> bool:
+    url = f"{base_url.rstrip('/')}/slots/{slot_id}?action={action}"
+    try:
+        response = httpx.post(
+            url,
+            json={"filename": SLOT_SAVE_FILENAME},
+            timeout=_SLOT_HTTP_TIMEOUT_S,
+        )
+    except httpx.HTTPError:
+        log.info("llama-server slot %s is not available", action)
+        return False
+    if response.status_code >= 400:
+        log.info(
+            "llama-server slot %s returned %s",
+            action,
+            response.status_code,
+        )
+        return False
+    return True
+
+
+def save_slot(base_url: str) -> bool:
+    """Save the live chat KV cache. False means the next turn may be cold."""
+    global _saved_slot_id
+    clear_slot_file()
+    slot_id = _slot_id(base_url)
+    if not _post_slot_action(base_url, slot_id, "save"):
+        clear_slot_file()
+        return False
+    _saved_slot_id = slot_id
+    return True
+
+
+def restore_slot(base_url: str) -> bool:
+    """Reload a saved chat KV cache. Always removes the file afterwards."""
+    global _saved_slot_id
+    path = slot_save_dir() / SLOT_SAVE_FILENAME
+    if not path.is_file():
+        return False
+    slot_id = _saved_slot_id
+    try:
+        return _post_slot_action(base_url, slot_id, "restore")
+    finally:
+        clear_slot_file()
+        _saved_slot_id = 0
+
+
 def llama_server_args(
+
     *,
     binary: str,
     model: str,
@@ -203,6 +306,8 @@ def llama_server_args(
     if headroom_on(config):
         # _spawn also starts the server at below normal priority when --threads is set.
         args.extend(["--threads", str(headroom_threads())])
+    # Slot save/restore after a picture. Replayed commands are not rewritten.
+    args.extend(["--slot-save-path", str(slot_save_dir())])
     args.extend(["--host", host, "--port", str(port)])
     return args
 

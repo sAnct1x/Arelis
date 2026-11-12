@@ -371,11 +371,33 @@ def looks_like_image_gen(text: str) -> bool:
         return True
     if wants_image_edit(check):
         return False
-    # "do not make a new picture" still matched "make a new picture" and
-    # preflight then told the model to call the image tool.
-    from arelis.core.intent_catalog import first_unnegated
+    # Negation binds only to the make-picture verb phrase itself, so
+    # "do not make a new picture" is refused while "don't forget to make
+    # a picture" and a new ask after "I don't like that one," still match.
+    return _first_unnegated_image_gen(check) is not None
 
-    return first_unnegated(_IMAGE_GEN, check) is not None
+
+
+
+# A negation only vetoes image-gen when it attaches to that verb phrase
+# (do not make, don't want you to make). "don't forget to make" and a
+# "don't like that, make a new picture" ask keep the later verb.
+_IMAGE_VERB_NEGATION = re.compile(
+    r"(?i)\b(?:(?<!why\s)don['\u2019]?t|do\s+not|never(?!\s+mind)|no\s+need(?:\s+to)?"
+    r"|didn['\u2019]?t|shouldn['\u2019]?t|why\s+(?:did|would)\s+you)\b"
+    r"(?:\s+(?:please|ever|even|just|really|actually|you))*"
+    r"(?:\s+(?:want|need|ask)(?:\s+(?:you|me|arelis))?(?:\s+to))?"
+    r"\s*$"
+)
+
+
+def _first_unnegated_image_gen(text: str) -> re.Match[str] | None:
+    raw = text or ""
+    for hit in _IMAGE_GEN.finditer(raw):
+        clause = re.split(r"[.!?;,\n]", raw[: hit.start()])[-1]
+        if not _IMAGE_VERB_NEGATION.search(clause):
+            return hit
+    return None
 
 
 def looks_like_browser_or_url(text: str) -> bool:

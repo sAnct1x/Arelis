@@ -5,7 +5,7 @@ from __future__ import annotations
 import subprocess
 
 from arelis.llm import llama_launch
-from arelis.llm.llama_launch import llama_server_args
+from arelis.llm.llama_launch import llama_server_args, slot_save_dir
 
 
 def _args(lc: dict) -> list[str]:
@@ -23,16 +23,21 @@ def test_avatar_headroom_on_by_default_and_false_keeps_todays_launch_line(
 ) -> None:
     monkeypatch.setattr(llama_launch, "_physical_cores", lambda: 8)
     off = _args({"avatar_headroom": False})
-    # Today's original launch line, byte-identical.
-    assert (
-        off
-        == (
+    # Built launch line, including --slot-save-path under the Arelis data folder.
+    expected = [
+        *(
             "llama-server -m m.gguf --mmproj p.gguf -ngl 99 -fa off -c 32768 -np 1 "
             "--n-cpu-moe 32 -ub 512 -b 4096 --cache-type-k f16 --cache-type-v f16 "
             "--image-max-tokens 1024 --jinja --chat-template-file t.jinja "
-            "--host 127.0.0.1 --port 8080"
-        ).split()
-    )
+            "--slot-save-path"
+        ).split(),
+        str(slot_save_dir()),
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8080",
+    ]
+    assert off == expected
     on = _args({})
     assert _args({"avatar_headroom": True}) == on
     assert on[on.index("--threads") + 1] == "6"

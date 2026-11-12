@@ -12,7 +12,7 @@ import atexit
 import json
 import logging
 import threading
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -43,8 +43,6 @@ _idle_timer: threading.Timer | None = None
 _atexit_registered = False
 _status: StatusFn | None = None
 _marker_path: Path | None = None
-_restore_warmup: Callable[[], Awaitable[None]] | None = None
-_needs_warmup = False
 # Injected in tests.
 _stop_fn: Callable[[str], bool] | None = None
 _ensure_fn: Callable[[str, list[str] | None], None] | None = None
@@ -161,12 +159,20 @@ def acquire(config: dict[str, Any] | None = None) -> None:
         _tell(CHAT_PAUSED)
         return
     try:
+        from arelis.llm.llama_launch import save_slot
+
+        save_slot(url)
+    except Exception:
+        # A failed save only means the next turn may be cold. Never block the picture.
+        log.info("Could not save the chat slot before a picture", exc_info=True)
+    try:
         stopped = _stop(url)
     except Exception:
         with _lock:
             _generating = False
             _held = False
         log.warning("Could not stop llama-server for image work", exc_info=True)
+        _clear_slot_file()
         raise
     with _lock:
         _stopped_server = bool(stopped) or _stopped_server
@@ -181,14 +187,14 @@ def acquire(config: dict[str, Any] | None = None) -> None:
 
 def mark_generation_done(*, success: bool, idle_s: float | None = None) -> None:
     """End the active job. Restore chat now. idle_s is kept for callers."""
-    del success, idle_s
+    del idle_s
     global _generating
     with _lock:
         _generating = False
         held = _held
     if not held:
         return
-    release()
+    release(restore_slot=bool(success))
 
 
 def schedule_release(delay_s: float | None = None) -> None:
@@ -222,9 +228,9 @@ def _release_safe() -> None:
         log.warning("Image GPU lease could not restore llama-server", exc_info=True)
 
 
-def release(*, nowait: bool = False) -> None:
+def release(*, nowait: bool = False, restore_slot: bool = False) -> None:
     """Start llama-server again if this lease stopped it. Always clears the hold."""
-    global _held, _generating, _stopped_server, _config, _needs_warmup
+    global _held, _generating, _stopped_server, _config
     with _lock:
         _cancel_idle()
         if not _held:
@@ -242,6 +248,7 @@ def release(*, nowait: bool = False) -> None:
     if not args:
         _tell(CHAT_RESTORE_FAILED)
         log.warning("Image GPU lease has no llama-server command to restore")
+        _clear_slot_file()
         return
     _tell(CHAT_RESUMING)
     try:
@@ -249,10 +256,14 @@ def release(*, nowait: bool = False) -> None:
             _nowait(url, args)
             if _server_up(url):
                 _clear_marker()
+            _clear_slot_file()
         else:
             _ensure(url, args, cfg)
             _clear_marker()
-            _needs_warmup = True
+            if restore_slot:
+                _restore_slot(url)
+            else:
+                _clear_slot_file()
         log.info("Image GPU lease released (nowait=%s)", nowait)
     except Exception:
         log.warning("Image GPU lease failed to restore llama-server", exc_info=True)
@@ -272,12 +283,14 @@ def release(*, nowait: bool = False) -> None:
                 )
         try:
             _nowait(url, retry)
+            _clear_slot_file()
         except Exception:
             log.warning(
                 "Image GPU lease could not spawn llama-server after a failed restore",
                 exc_info=True,
             )
             _tell(CHAT_RESTORE_FAILED)
+            _clear_slot_file()
             raise
 
 
@@ -326,7 +339,7 @@ def reset_for_tests(
     """Clear lease state and optionally install fakes. Tests only."""
     global _held, _generating, _stopped_server, _config
     global _stop_fn, _ensure_fn, _nowait_fn, _args_fn, _status
-    global _restore_warmup, _needs_warmup, _marker_path
+    global _marker_path
     with _lock:
         _cancel_idle()
         _held = False
@@ -338,8 +351,6 @@ def reset_for_tests(
         _nowait_fn = nowait
         _args_fn = args
         _status = None
-        _restore_warmup = None
-        _needs_warmup = False
         _marker_path = None
 
 
@@ -357,29 +368,26 @@ def marker_path() -> Path:
     return state_dir() / "gpu-lease.json"
 
 
-def set_restore_warmup(fn: Callable[[], Awaitable[None]] | None) -> None:
-    """Called after a blocking restore so chat can re-prefill the prompt cache."""
-    global _restore_warmup
-    _restore_warmup = fn
-
-
-def take_needs_warmup() -> bool:
-    """True once after a restore that brought llama-server back on this loop."""
-    global _needs_warmup
-    flag = _needs_warmup
-    _needs_warmup = False
-    return flag
-
-
-async def run_restore_warmup() -> None:
-    fn = _restore_warmup
-    if fn is None:
-        return
+def _restore_slot(base_url: str) -> None:
+    """Reload the saved chat slot. Failures stay silent; the next turn may be cold."""
     try:
-        await fn()
+        from arelis.llm.llama_launch import restore_slot
+
+        restore_slot(base_url)
     except Exception:
-        # A failed seed only means the next turn prefills cold, as before.
-        log.warning("Could not reseed the chat cache after a picture", exc_info=True)
+        # A failed reload only means the next turn may be cold. No user error.
+        log.info("Could not restore the chat slot after a picture", exc_info=True)
+        _clear_slot_file()
+
+
+def _clear_slot_file() -> None:
+    try:
+        from arelis.llm.llama_launch import clear_slot_file
+
+        clear_slot_file()
+    except Exception:
+        # Cleanup is best effort; a leftover file is overwritten next time.
+        log.info("Could not clear the saved chat slot file", exc_info=True)
 
 
 def _server_up(base_url: str) -> bool:

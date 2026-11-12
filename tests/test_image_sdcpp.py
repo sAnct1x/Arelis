@@ -567,86 +567,70 @@ def test_next_launch_restores_llama_if_a_picture_left_it_stopped(
     assert not marker.is_file()
 
 
-def test_successful_picture_reseeds_history_so_the_next_turn_is_not_cold(
+def test_successful_picture_saves_and_restores_the_chat_slot(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from types import SimpleNamespace
+    """Arelis-built launch lines get --slot-save-path; a replay is left as-is.
 
-    from arelis.core.memory import ChatMessage, SessionMemory
-    from arelis.llm.startup import PrefixWarmup, seed_after_gpu_restore
+    Save runs before llama-server is stopped. Restore runs only after a
+    successful picture brings it back. A server that cannot save just
+    continues, with no error in chat.
+    """
+    from arelis.llm import llama_launch
+    from arelis.llm.llama_launch import llama_server_args
 
-    class _Bus:
-        async def publish(self, event: Any) -> None:
-            del event
+    slot_dir = tmp_path / "slots"
+    monkeypatch.setattr(llama_launch, "slot_save_dir", lambda: slot_dir)
 
-    class _Provider:
-        def __init__(self) -> None:
-            self.calls: list[list[dict[str, Any]]] = []
-
-        async def stream_chat(self, model, messages, **kwargs):
-            del model, kwargs
-            self.calls.append(list(messages))
-            yield ("token", "x")
-
-    class _Router:
-        def __init__(self, provider: _Provider) -> None:
-            self.provider = provider
-            self.active_model = "probe-chat"
-            self.default_role = "fast"
-            self.default_keep_alive = "30m"
-
-        def model_for(self, role=None):
-            del role
-            return self.active_model
-
-    prefix = PrefixWarmup(
-        messages=[{"role": "system", "content": "PERSONA " * 50}],
-        tools=[{"type": "function", "function": {"name": "image"}}],
-        num_ctx=4096,
+    built = llama_server_args(
+        binary="llama-server",
+        model="m.gguf",
+        mmproj="p.gguf",
+        template="t.jinja",
+        config={"llamacpp": {"avatar_headroom": False}},
     )
-    monkeypatch.setattr("arelis.llm.startup.prefix_warmup_for", lambda *a, **k: prefix)
-    memory = SessionMemory()
-    memory.messages = [
-        ChatMessage(role="user", content="make a picture of a red fox"),
-        ChatMessage(role="assistant", content="Image ready: outputs/images/fox.png"),
-        ChatMessage(role="user", content="what is Saturn's largest moon?"),
-        ChatMessage(role="assistant", content="Titan is Saturn's largest moon."),
-    ]
-    provider = _Provider()
-    tokens = asyncio.run(
-        seed_after_gpu_restore(
-            {},
-            _Router(provider),  # type: ignore[arg-type]
-            _Bus(),  # type: ignore[arg-type]
-            tools={},
-            memory=memory,
-        )
-    )
-    assert provider.calls, "the post-picture seed never reached the server"
-    seeded = provider.calls[0]
-    assert any("red fox" in str(item.get("content") or "") for item in seeded)
-    assert any("Titan" in str(item.get("content") or "") for item in seeded)
-    prefix_only = asyncio.run(
-        seed_after_gpu_restore(
-            {},
-            _Router(provider),  # type: ignore[arg-type]
-            _Bus(),  # type: ignore[arg-type]
-            tools={},
-            memory=SimpleNamespace(as_chat=lambda **k: []),
-        )
-    )
-    # History must add tokens beyond the static prefix. This is the estimator
-    # a fake server can give; first-turn wall time still needs an Atria run.
-    assert tokens > prefix_only
+    assert built[built.index("--slot-save-path") + 1] == str(slot_dir)
+    assert llama_launch.slot_save_dir() == slot_dir
 
-    events = _install_lease_spies()
+    replayed = ["llama-server", "-m", "model.gguf", "--port", "8080"]
+    llama_launch.remember_launch(replayed, cwd="/tmp/hand-started")
+    try:
+        assert llama_launch.restore_args(
+            {"llamacpp": {"base_url": "http://127.0.0.1:8080"}}
+        ) == replayed
+        assert "--slot-save-path" not in llama_launch.restore_args({})
+    finally:
+        llama_launch._saved_args = None
+        llama_launch._saved_cwd = None
+
+    events: list[Any] = []
+    status: list[str] = []
+
+    def fake_get(url: str, **kwargs: Any) -> httpx.Response:
+        del kwargs
+        events.append(("get", str(url)))
+        if str(url).rstrip("/").endswith("/slots"):
+            return httpx.Response(200, json=[{"id": 0}])
+        raise httpx.ConnectError("unexpected get")
+
+    def fake_post(url: str, **kwargs: Any) -> httpx.Response:
+        payload = kwargs.get("json")
+        events.append(("post", str(url), payload))
+        text = str(url)
+        if "action=save" in text:
+            slot_dir.mkdir(parents=True, exist_ok=True)
+            (slot_dir / llama_launch.SLOT_SAVE_FILENAME).write_bytes(b"kv")
+            return httpx.Response(200, json={"id_slot": 0, "n_saved": 8, "n_written": 2})
+        if "action=restore" in text:
+            return httpx.Response(200, json={"id_slot": 0, "n_restored": 8, "n_read": 2})
+        raise httpx.ConnectError("unexpected post")
+
+    monkeypatch.setattr(llama_launch.httpx, "get", fake_get)
+    monkeypatch.setattr(llama_launch.httpx, "post", fake_post)
+
+    lease_events = _install_lease_spies()
+    gpu_lease.set_status(status.append)
     _patch_sdcpp_ready(monkeypatch, tmp_path)
-    seeded_hook: list[str] = []
-
-    async def _hook() -> None:
-        seeded_hook.append("seed")
-
-    gpu_lease.set_restore_warmup(_hook)
     config = {
         "llamacpp": {"base_url": "http://127.0.0.1:8080"},
         "tools": {"image": {"backend": "sdcpp", "sdcpp": {"idle_timeout_s": 90}}},
@@ -659,5 +643,137 @@ def test_successful_picture_reseeds_history_so_the_next_turn_is_not_cold(
     )
     result = asyncio.run(tool.run(prompt="a red fox"))
     assert result.ok is True
+    assert [item[0] for item in lease_events] == ["stop", "ensure"]
+    posts = [item for item in events if item[0] == "post"]
+    assert any("action=save" in str(item[1]) for item in posts)
+    assert any("action=restore" in str(item[1]) for item in posts)
+    save_at = next(i for i, item in enumerate(events) if item[0] == "post" and "action=save" in str(item[1]))
+    restore_at = next(i for i, item in enumerate(events) if item[0] == "post" and "action=restore" in str(item[1]))
+    assert save_at < restore_at
+    # The lease stop runs after save, and restore after ensure.
+    assert lease_events[0][0] == "stop"
+    assert lease_events[1][0] == "ensure"
+    assert not (slot_dir / llama_launch.SLOT_SAVE_FILENAME).exists()
+    assert all("Chat could not come back" not in line for line in status)
+    for item in posts:
+        assert item[2] == {"filename": llama_launch.SLOT_SAVE_FILENAME}
+
+    # A server without the flag: save fails, the picture still runs, no chat error.
+    events.clear()
+    status.clear()
+
+    def deny_save(url: str, **kwargs: Any) -> httpx.Response:
+        del kwargs
+        events.append(("post", str(url)))
+        if "action=save" in str(url):
+            return httpx.Response(400, json={"error": {"message": "slot save path not set"}})
+        if "action=restore" in str(url):
+            raise AssertionError("restore must not run when no slot was saved")
+        raise httpx.ConnectError("unexpected post")
+
+    monkeypatch.setattr(llama_launch.httpx, "post", deny_save)
+    lease_events = _install_lease_spies()
+    gpu_lease.set_status(status.append)
+    result = asyncio.run(tool.run(prompt="a red fox"))
+    assert result.ok is True
+    assert [item[0] for item in lease_events] == ["stop", "ensure"]
+    assert any("action=save" in str(item[1]) for item in events)
+    assert all("action=restore" not in str(item[1]) for item in events)
+    assert all("Chat could not come back" not in line for line in status)
+    assert not (slot_dir / llama_launch.SLOT_SAVE_FILENAME).exists()
+
+
+def test_stopped_or_crashed_picture_does_not_wait_on_slot_restore(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Stop and crash bring chat back as soon as llama-server is running."""
+    import time
+
+    from arelis.llm import llama_launch
+
+    restored: list[str] = []
+
+    def slow_restore(base_url: str) -> bool:
+        del base_url
+        restored.append("restore")
+        time.sleep(2)
+        return True
+
+    monkeypatch.setattr(llama_launch, "restore_slot", slow_restore)
+    monkeypatch.setattr(llama_launch, "save_slot", lambda _url: True)
+    monkeypatch.setattr(llama_launch, "clear_slot_file", lambda: None)
+
+    # Crash
+    events = _install_lease_spies()
+    _patch_sdcpp_ready(monkeypatch, tmp_path)
+
+    def crash(args: list[str], output: Path, *, cancelled=None, **kwargs: Any) -> None:
+        del args, output, cancelled, kwargs
+        raise RuntimeError("The picture program stopped before it finished.")
+
+    monkeypatch.setattr("arelis.tools.image.run_cli", crash)
+    config = {
+        "llamacpp": {"base_url": "http://127.0.0.1:8080"},
+        "tools": {"image": {"backend": "sdcpp"}},
+    }
+    tool = ImageTool(
+        comfy_url="http://127.0.0.1:9",
+        output_dir=str(tmp_path / "out"),
+        backend="sdcpp",
+        config=config,
+    )
+    started = time.perf_counter()
+    result = asyncio.run(tool.run(prompt="a red fox"))
+    elapsed = time.perf_counter() - started
+    assert result.ok is False
+    assert "[fail:image]" in result.output
     assert [item[0] for item in events] == ["stop", "ensure"]
-    assert seeded_hook == ["seed"]
+    assert restored == []
+    assert elapsed < 1.0
+
+    # Stop
+    events = _install_lease_spies()
+    _patch_sdcpp_ready(monkeypatch, tmp_path)
+    held = {"stop": False}
+
+    def stop(url: str) -> bool:
+        held["stop"] = True
+        events.append(("stop", url))
+        return True
+
+    gpu_lease.reset_for_tests(
+        stop=stop,
+        ensure=lambda url, args: events.append(("ensure", url, list(args or []))),
+        nowait=lambda url, args: events.append(("nowait", url, list(args or []))),
+        args=lambda _config: ["llama-server"],
+    )
+    tool = ImageTool(
+        comfy_url="http://127.0.0.1:9",
+        output_dir=str(tmp_path / "out"),
+        backend="sdcpp",
+        config=config,
+    )
+    tool.is_cancelled = lambda: held["stop"]
+    started = time.perf_counter()
+    result = asyncio.run(tool.run(prompt="a red fox"))
+    elapsed = time.perf_counter() - started
+    assert result.ok is False
+    assert "stopped" in result.output.lower()
+    assert [item[0] for item in events] == ["stop", "ensure"]
+    assert restored == []
+    assert elapsed < 1.0
+
+
+def test_startup_recovers_a_paused_llama_server() -> None:
+    """The launch path must call recover_paused_server (ui/launch.py)."""
+    import inspect
+    import re
+
+    from arelis.ui import launch as launch_mod
+
+    source = inspect.getsource(launch_mod)
+    assert re.search(
+        r"asyncio\.to_thread\(\s*recover_paused_server\s*,\s*config\s*\)",
+        source,
+    )
+

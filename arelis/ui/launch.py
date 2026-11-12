@@ -756,17 +756,6 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
         raise
     _mark_launch(window, background)
     window.orchestrator = orchestrator
-
-    async def _after_picture_restore() -> None:
-        from arelis.llm.startup import seed_after_gpu_restore
-
-        loop_obj = getattr(orchestrator, "_agent_loop", None)
-        memory = getattr(loop_obj, "memory", None)
-        await seed_after_gpu_restore(config, router, bus, tools, memory=memory)
-
-    from arelis.tools.gpu_lease import set_restore_warmup
-
-    set_restore_warmup(_after_picture_restore)
     # Inbound: by default the UI owns ingest. Close-to-tray keeps it alive when
     # the window hides; `arelis --core` can own ingest instead.
     presence_cfg = config.get("presence") or {}
