@@ -157,11 +157,17 @@ _NOT_A_TOOL_MENTION: dict[str, re.Pattern[str]] = {
     "remind": re.compile(
         r"\bremind\s+me\b[\s,:;-]*(?:what|who|how|why|where|which|whether|if|of|about)\b"
     ),
-    # "total units, Harvester count" counts sentinel units. The word names the
-    # conversion tool only as "the units tool" or after use, call, with, via, using.
+    # "total units, Harvester count" counts sentinel units. Only that counting
+    # sense is dropped: a number or count word before, or army words after.
     "units": re.compile(
-        r"(?<!use )(?<!call )(?<!with )(?<!via )(?<!using )\bunits\b(?!\s+tool\b)"
+        r"\b(?:\d+|total|how\s+many|number\s+of)\s+units\b"
+        r"|\bunits\s+(?:are|were|remain|left|deployed|in\s+the\s+swarm)\b"
     ),
+}
+
+# A conversion ask keeps the word as a tool mention even beside a count.
+_STILL_A_TOOL_MENTION: dict[str, re.Pattern[str]] = {
+    "units": re.compile(r"\bconver(?:t|sion)|\bdo\s+units\b|\bunits\s*:"),
 }
 
 
@@ -231,6 +237,9 @@ def named_tools_owed(loop: Any, ctx: TurnContext) -> list[str]:
         spoken = name.replace("_", " ")
         pattern = _OWED_TOOL_VERBS.get(name)
         not_tool = _NOT_A_TOOL_MENTION.get(name)
+        kept = _STILL_A_TOOL_MENTION.get(name)
+        if kept is not None and kept.search(text):
+            not_tool = None
         said = not_tool.sub(" ", text) if not_tool is not None else text
         if (
             re.search(rf"\b{re.escape(spoken)}\b", said)
