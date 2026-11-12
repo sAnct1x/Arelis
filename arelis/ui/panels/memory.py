@@ -48,6 +48,24 @@ def _format_fact_item(fact: dict[str, object]) -> str:
     return text
 
 
+class _FactList(QListWidget):
+    """Enter edits the current fact and Delete forgets the selected ones."""
+
+    edit_requested = Signal()
+    forget_requested = Signal()
+
+    def keyPressEvent(self, event) -> None:  # type: ignore[override]
+        key = event.key()
+        picked = bool(self.selectedItems()) or self.currentItem() is not None
+        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and picked:
+            self.edit_requested.emit()
+            return
+        if key == Qt.Key.Key_Delete and picked:
+            self.forget_requested.emit()
+            return
+        super().keyPressEvent(event)
+
+
 class ActiveFactsPanel(QWidget):
     """List durable facts, edit their wording, or forget ones that should stop.
 
@@ -78,6 +96,7 @@ class ActiveFactsPanel(QWidget):
 
         self.search = QLineEdit()
         self.search.setObjectName("InstrumentSearch")
+        self.search.setAccessibleName("Filter facts")
         self.search.setPlaceholderText("filter active facts…")
         self.search.setFixedHeight(28)
         self.search.textChanged.connect(self._apply_filter)
@@ -87,9 +106,11 @@ class ActiveFactsPanel(QWidget):
         self.active_label.setObjectName("InstrumentHint")
         layout.addWidget(self.active_label)
 
-        self.active_list = QListWidget()
+        self.active_list = _FactList()
         self.active_list.setObjectName("ActiveFactsList")
-        self.active_list.setAccessibleName("active facts")
+        self.active_list.setAccessibleName("Active facts")
+        self.active_list.edit_requested.connect(self._edit_selected)
+        self.active_list.forget_requested.connect(self._forget_selected)
         self.active_list.setFrameShape(QListWidget.Shape.NoFrame)
         self.active_list.setMinimumHeight(120)
         self.active_list.setWordWrap(True)
@@ -109,19 +130,19 @@ class ActiveFactsPanel(QWidget):
         row.setContentsMargins(0, 0, 0, 0)
         self.edit_btn = QPushButton("edit")
         self.edit_btn.setObjectName("FactEdit")
-        self.edit_btn.setAccessibleName("edit")
+        self.edit_btn.setAccessibleName("Edit fact")
         self.edit_btn.setFixedHeight(28)
         self.edit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.edit_btn.setToolTip("Change the wording of the selected fact.")
+        self.edit_btn.setToolTip("Change the wording of the selected fact (Enter).")
         self.edit_btn.clicked.connect(self._edit_selected)
         row.addWidget(self.edit_btn)
         self.forget_btn = QPushButton("forget")
         self.forget_btn.setObjectName("FactForget")
-        self.forget_btn.setAccessibleName("forget")
+        self.forget_btn.setAccessibleName("Forget fact")
         self.forget_btn.setFixedHeight(28)
         self.forget_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.forget_btn.setToolTip(
-            "Stop injecting selected fact(s). Shift/Ctrl-click to select several."
+            "Stop injecting selected fact(s) (Delete). Shift/Ctrl-click to select several."
         )
         self.forget_btn.clicked.connect(self._forget_selected)
         row.addWidget(self.forget_btn)
@@ -146,6 +167,8 @@ class ActiveFactsPanel(QWidget):
             item = QListWidgetItem(_format_fact_item(fact))
             item.setData(Qt.ItemDataRole.UserRole, int(fact["id"]))  # type: ignore[arg-type]
             item.setData(_FACT_TEXT_ROLE, fact_text)
+            # UIA names the row by the fact alone, not the dates line under it.
+            item.setData(Qt.ItemDataRole.AccessibleTextRole, fact_text)
             dates = _format_fact_dates(fact)
             item.setToolTip(f"{fact_text}\n{dates}" if dates else fact_text)
             self.active_list.addItem(item)
@@ -188,6 +211,7 @@ class ActiveFactsPanel(QWidget):
             "Change what Arelis remembers. Leave it blank to cancel.",
             initial=current,
             accept_text="Save",
+            field_name="Fact text",
         )
 
     def _edit_selected(self) -> None:

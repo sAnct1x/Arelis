@@ -289,13 +289,19 @@ def ask_text(
     initial: str = "",
     accept_text: str = "Keep",
     cancel_text: str = "Cancel",
+    field_name: str = "",
 ) -> str:
-    """Ask for a short note. Empty string means they cancelled or left it blank."""
+    """Ask for a short note. Empty string means they cancelled or left it blank.
+
+    field_name is the text box's accessible name. Tab leaves the box for the buttons.
+    """
     dialog = GlassDialog(heading, parent=parent, width=420)
     dialog.add_text(message)
     edit = QPlainTextEdit()
     edit.setObjectName("ComposerInput")
     edit.setPlaceholderText(placeholder)
+    edit.setAccessibleName(field_name or heading)
+    edit.setTabChangesFocus(True)
     if initial:
         edit.setPlainText(initial)
         cursor = edit.textCursor()
