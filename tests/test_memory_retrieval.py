@@ -295,4 +295,38 @@ def test_compound_ask_keeps_a_second_relevant_fact_once(tmp_path) -> None:
     assert f"fact:{sister}" in picked_ids
     for noise_id in noise:
         assert f"fact:{noise_id}" not in picked_ids
+
+    # A sentence end is not a new question: "Ok." must not match "Ok to ...".
+    # Nor may a one-word "Ok?" score alone.
+    _add_fact(store, "Ok to delete files in Downloads without asking.")
+    for opener in ("Ok.", "Ok?"):
+        assert not retrieve_relevant_memories(
+            store,
+            f"{opener} Summarize the attached paper on exoplanet transit "
+            "photometry and list its three main limitations for small telescopes.",
+        )
     store.close()
+
+    # One added, swapped or reordered word is a different fact: keep both.
+    for left, right in (
+        ("My favourite planet to observe is Saturn.",
+         "My least favourite planet to observe is Saturn."),
+        ("I prefer Fahrenheit over Celsius.", "I prefer Celsius over Fahrenheit."),
+        ("I fly from Boston to Denver.", "I fly from Denver to Boston."),
+        ("Sam is older than Ella.", "Ella is older than Sam."),
+        ("I am allergic to penicillin, not amoxicillin.",
+         "I am allergic to amoxicillin, not penicillin."),
+        ("I should take vitamin D daily.", "I take vitamin D daily."),
+        ("My former manager is Dana.", "My manager is Dana."),
+        ("I dont drink coffee.", "I drink coffee."),
+        ("I image Jupiter through a red filter on clear nights.",
+         "I image Jupiter through a blue filter on clear nights."),
+        ("The tall trees east of the yard block the low horizon.",
+         "The tall trees west of the yard block the low horizon."),
+    ):
+        pair = [
+            MemoryItem(item_id=f"fact:{n}", kind="fact", text=text, updated_at="")
+            for n, text in enumerate((left, right))
+        ]
+        picked = retrieve_relevant_memories(store, f"{left} {right}", items=pair)
+        assert len(picked) == 2, (left, right)

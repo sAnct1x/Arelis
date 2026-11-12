@@ -120,12 +120,17 @@ _STOPWORDS = frozenset(
 )
 
 _TOKEN = re.compile(r"[a-z0-9]+")
-# Sub-question breaks: sentence ends, and ", and what ..." style joins.
+_QUESTION_WORDS = ("what", "which", "who", "whom", "whose", "where", "when", "why", "how")
+# A new question starts after "?" or at ", and what ..." / "also how ...".
+# Sentence ends and "!" are not breaks: "Ok. <long ask>" is one ask.
 _SUBQUESTION_SPLIT = re.compile(
-    r"[?!;]+|\.\s+|,?\s+(?:and|also)\s+"
-    r"(?=(?:what|which|who|whom|whose|where|when|why|how)\b)",
+    r"\?+|,?\s+(?:and|also)\s+(?=(?:" + "|".join(_QUESTION_WORDS) + r")\b)",
     re.IGNORECASE,
 )
+# A sub-question scores alone only if it opens with a question word or has
+# this many content words, so "Ok?" or "Thanks?" cannot match on one word.
+_MIN_PART_WORDS = 3
+_MAX_PARTS = 4
 
 EmbedFn = Callable[[str, list[str]], Awaitable[list[list[float]]]]
 ModelCheckFn = Callable[[], Awaitable[bool]]
@@ -178,13 +183,36 @@ def _token_variants(token: str) -> set[str]:
     return variants
 
 
-def keyword_score(query: str, text: str) -> float:
-    """Best fraction of one sub-question's content tokens found in the text.
+_QueryPart = list[set[str]]
+
+
+def _query_parts(query: str) -> list[_QueryPart]:
+    """The whole ask, then up to ``_MAX_PARTS`` sub-questions, as stem sets.
 
     A compound ask ("how long are my exposures, and what finder do I have?")
     is scored per sub-question, as if each were asked alone, so the words of
     one part do not dilute a fact that answers the other part.
     """
+    token_sets = [tokenize_for_match(query)]
+    pieces = _SUBQUESTION_SPLIT.split(query)
+    if len(pieces) > 1:
+        for piece in pieces:
+            tokens = tokenize_for_match(piece)
+            if not tokens:
+                continue
+            words = _TOKEN.findall(piece.lower())
+            if len(tokens) < _MIN_PART_WORDS and words[0] not in _QUESTION_WORDS:
+                continue
+            token_sets.append(tokens)
+            if len(token_sets) > _MAX_PARTS:
+                break
+    return [
+        [_token_variants(token) for token in tokens] for tokens in token_sets if tokens
+    ]
+
+
+def _keyword_score_parts(parts: list[_QueryPart], text: str) -> float:
+    """Best fraction of one part's content tokens found in the text."""
     text_tokens = tokenize_for_match(text)
     if not text_tokens:
         return 0.0
@@ -192,15 +220,15 @@ def keyword_score(query: str, text: str) -> float:
     for token in text_tokens:
         text_variants.update(_token_variants(token))
     best = 0.0
-    for part in [query, *_SUBQUESTION_SPLIT.split(query)]:
-        query_tokens = tokenize_for_match(part)
-        if not query_tokens:
-            continue
-        hits = sum(
-            1 for token in query_tokens if _token_variants(token) & text_variants
-        )
-        best = max(best, hits / len(query_tokens))
+    for part in parts:
+        hits = sum(1 for variants in part if variants & text_variants)
+        best = max(best, hits / len(part))
     return best
+
+
+def keyword_score(query: str, text: str) -> float:
+    """Best fraction of the ask's (or one sub-question's) tokens in the text."""
+    return _keyword_score_parts(_query_parts(query), text)
 
 
 def recency_score(
@@ -319,8 +347,9 @@ def score_items(
     """Score every candidate. Embeddings contribute only when the query has one."""
     has_embeddings = query_embedding is not None
     scored: list[ScoredMemory] = []
+    parts = _query_parts(query)
     for item in items:
-        keyword = keyword_score(query, item.text)
+        keyword = _keyword_score_parts(parts, item.text)
         recency = recency_score(item.updated_at, now=now)
         embed = embedding_score(query_embedding, item.embedding)
         scored.append(
@@ -379,27 +408,51 @@ _NUMBER_WORDS = frozenset(
         "thousand", "million", "half", "dozen",
     }
 )
-_POSSESSIVE = re.compile(r"\b([a-z]+)['\u2019]s\b")
+_POSSESSIVE = re.compile(r"\b([a-z]+)'s\b")
 # "user's" is the owner; the rest are contractions, not possessives.
 _NOT_OTHER_OWNER = frozenset(
     {"user", "it", "that", "there", "here", "what", "who", "where", "he", "she", "let"}
 )
-_NEGATION = re.compile(r"\b(?:not|no|never)\b|n['\u2019]t\b")
+_APOSTROPHES = str.maketrans({"\u2019": "'", "\u2018": "'"})
+_THE_USER = re.compile(r"\bthe\s+user(?:'s)?\b")
+# Words that only say whose fact it is, and filler. Unlike _STOPWORDS,
+# "should", "will" and "not" stay: they change what the fact says.
+_DUPLICATE_SKIP = frozenset(
+    {"i", "me", "my", "mine", "myself", "we", "us", "our", "ours", "you", "your",
+     "yours", "a", "an", "the", "is", "are", "am", "be", "of", "on", "in", "at",
+     "to", "for", "with", "and", "that", "this", "it", "s"}
+)
+# "can't", "cant" and "cannot" are one negation, so each spelling says "not".
+_NEGATION_FORMS = {
+    "cannot": ("can", "not"), "cant": ("can", "not"), "wont": ("will", "not"),
+    "dont": ("do", "not"), "doesnt": ("does", "not"), "didnt": ("did", "not"),
+    "isnt": ("is", "not"), "arent": ("are", "not"), "wasnt": ("was", "not"),
+    "werent": ("were", "not"), "hasnt": ("has", "not"), "havent": ("have", "not"),
+    "shouldnt": ("should", "not"), "couldnt": ("could", "not"),
+    "wouldnt": ("would", "not"),
+}
 
 
 @dataclass(frozen=True, slots=True)
 class _DuplicateKey:
-    tokens: frozenset[str]
+    words: tuple[str, ...]
     numbers: frozenset[str]
     possessives: frozenset[str]
-    negated: bool
 
 
 def _duplicate_key(text: str) -> _DuplicateKey:
-    lowered = text.lower()
-    tokens = frozenset(tokenize_for_match(text))
+    lowered = text.lower().translate(_APOSTROPHES)
+    raw = re.sub(r"n't\b", "nt", _THE_USER.sub(" ", lowered))
+    words: list[str] = []
+    for token in _TOKEN.findall(raw):
+        for part in _NEGATION_FORMS.get(token, (token,)):
+            if part in _DUPLICATE_SKIP:
+                continue
+            if len(part) > 3 and part.endswith("s") and not part.endswith("ss"):
+                part = part[:-1]
+            words.append(part)
     return _DuplicateKey(
-        tokens=tokens,
+        words=tuple(words),
         numbers=frozenset(
             token
             for token in _TOKEN.findall(lowered)
@@ -410,22 +463,21 @@ def _duplicate_key(text: str) -> _DuplicateKey:
             for name in _POSSESSIVE.findall(lowered)
             if name not in _NOT_OTHER_OWNER
         ),
-        negated=bool(_NEGATION.search(lowered)),
     )
 
 
 def _near_duplicate(left: _DuplicateKey, right: _DuplicateKey) -> bool:
-    """Same fact reworded: 80% shared words and no change of number,
-    whose thing it is ("sister's"), or negation."""
-    if not left.tokens or not right.tokens:
-        return False
-    if (
-        left.numbers != right.numbers
-        or left.possessives != right.possessives
-        or left.negated != right.negated
-    ):
-        return False
-    return len(left.tokens & right.tokens) >= 0.8 * len(left.tokens | right.tokens)
+    """Same fact reworded: the same content words in the same order, once
+    owner words ("my", "the user's"), filler, punctuation, hyphens, plurals
+    and "dont" vs "don't" are set aside, and no change of number or of
+    whose thing it is ("sister's"). Any added, swapped or reordered word
+    (least, should, not, Boston to Denver vs Denver to Boston) keeps both."""
+    return (
+        bool(left.words)
+        and left.words == right.words
+        and left.numbers == right.numbers
+        and left.possessives == right.possessives
+    )
 
 
 def _clip_item_text(text: str) -> str:

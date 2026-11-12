@@ -34,8 +34,10 @@ that also match. Unrelated memories stay out of the prompt, even if she has
 many of them. The block is capped at 6 memories and 800 characters.
 
 A question with two parts ("how long are my Saturn exposures, and what finder
-do I have?") can bring up a fact for each part. Near-identical copies of one
-fact count once, so they do not crowd out other memories.
+do I have?") can bring up a fact for each part. Copies of one fact that differ
+only in small words like "my", punctuation or plurals count once, so they do
+not crowd out other memories. Facts with a different, added or reordered word
+("least favourite", "Denver to Boston") are kept apart.
 
 The full list still lives under Settings, memory. If she does not bring up
 something you expected, check that list, or ask her to remember it.
