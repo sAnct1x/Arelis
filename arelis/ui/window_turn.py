@@ -299,6 +299,14 @@ class WindowTurn:
             return
         if self._busy_epoch != self._stop_busy_epoch:
             return
+        from arelis.tools.gpu_lease import chat_blocked
+
+        if chat_blocked():
+            # A stopped picture turn is still bringing llama-server back and
+            # ends with "Stopped." once it is up. Unlocking Send now lets the
+            # next message reach a server that is still loading.
+            self._busy_watchdog.start(_BUSY_WATCHDOG_MS)
+            return
         self._assistant_streaming = False
         self._set_busy(False)
         self.chat.add_system("Turn ended without a reply. Input re-enabled.")

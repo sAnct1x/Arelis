@@ -14,7 +14,8 @@ The first time you ask for a picture, Arelis downloads about 5 GB of
 model files (Apache-2.0) and a small Windows program (MIT). Files over
 50 MB need an Allow card, even if pictures are set not to ask first in
 Settings. The card shows the download size and Allow and Deny in every
-theme, including filament. If a download fails or you stop it, unfinished
+theme, including filament. Its details say Arelis will make a picture on
+this PC with the graphics card. If a download fails or you stop it, unfinished
 files are deleted.
 
 While a picture is being made, chat is paused so the image model can use
@@ -28,8 +29,11 @@ the next message is not a long cold wait. The save does not freeze the
 app, so chat lines and Stop still work. If that save or reload cannot
 be done, or the save takes more than about ten seconds, the next
 message may take longer, with no extra error. A picture
-that is stopped or fails brings chat back as soon as llama-server is
-running again, without waiting to reload that memory. If chat cannot come
+that is stopped or fails also brings chat back and reloads that memory,
+so the next message is not a cold wait either. If you press Stop while a
+picture is being made or while chat is coming back, the message box
+stays locked until chat is back, then "Stopped." shows and you can send
+again. If chat cannot come
 back after the picture, a plain message says so and asks you to try
 closing Arelis and opening it again.
 If the picture program fails, is stopped, or Arelis quits, chat

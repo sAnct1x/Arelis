@@ -329,3 +329,11 @@ def test_first_use_download_pauses_even_when_confirm_image_is_off(
     )
     assert evaluate_confirm("image", {}, confirm_image=False) is True
     assert evaluate_confirm("image", {}, confirm_image=False, asked=True) is True
+
+
+def test_image_card_detail_names_no_backend() -> None:
+    from arelis.tools.policy import describe_call
+
+    card = describe_call("image", {"prompt": "a red fox"})
+    assert "ComfyUI" not in card
+    assert "Prompt: a red fox" in card

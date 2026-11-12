@@ -681,11 +681,25 @@ class ImageTool:
                     idle_s: float | None = float(idle)
                 except (TypeError, ValueError):
                     idle_s = None
-                await asyncio.shield(
+                # Stop can land while chat is coming back. Keep this turn
+                # open until llama-server is up, or the next Send reaches a
+                # server that is still loading and fails.
+                restore = asyncio.ensure_future(
                     asyncio.to_thread(
                         mark_generation_done, success=success, idle_s=idle_s
                     )
                 )
+                stopped = False
+                while True:
+                    try:
+                        await asyncio.shield(restore)
+                        break
+                    except asyncio.CancelledError:
+                        if restore.cancelled():
+                            raise
+                        stopped = True
+                if stopped:
+                    raise asyncio.CancelledError()
 
     async def run(self, **kwargs: Any) -> ToolResult:
         prompt = str(kwargs.get("prompt") or "").strip()

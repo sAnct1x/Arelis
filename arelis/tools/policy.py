@@ -658,9 +658,7 @@ def describe_call(
     if name == "image":
         prompt = redact_secrets(str(args.get("prompt") or "")).strip() or "(no prompt)"
         return (
-            "Generate an image with ComfyUI.\n"
-            "If ComfyUI is not already running, Arelis will start it "
-            "(uses GPU/VRAM).\n\n"
+            "Make a picture on this PC. It uses the graphics card.\n\n"
             f"Prompt: {prompt}"
         )
     if name == "external_read":

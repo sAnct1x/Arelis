@@ -38,6 +38,9 @@ _lock = threading.Lock()
 _held = False
 _generating = False
 _stopped_server = False
+# True while release() restarts llama-server and reloads the slot. _held is
+# already False then, so this is what tells the UI chat is not back yet.
+_restoring = False
 _config: dict[str, Any] | None = None
 _idle_timer: threading.Timer | None = None
 _atexit_registered = False
@@ -64,6 +67,12 @@ def is_held() -> bool:
 def is_generating() -> bool:
     with _lock:
         return _generating
+
+
+def chat_blocked() -> bool:
+    """True from acquire until llama-server is back and the slot reloaded."""
+    with _lock:
+        return _held or _restoring
 
 
 def _base_url(config: dict[str, Any] | None) -> str:
@@ -186,15 +195,19 @@ def acquire(config: dict[str, Any] | None = None) -> None:
 
 
 def mark_generation_done(*, success: bool, idle_s: float | None = None) -> None:
-    """End the active job. Restore chat now. idle_s is kept for callers."""
-    del idle_s
+    """End the active job. Restore chat now. success and idle_s are kept for callers.
+
+    The slot file exists only if the save before the picture worked, and it
+    holds the chat as it was then, so a Stop or crash reloads it too.
+    """
+    del success, idle_s
     global _generating
     with _lock:
         _generating = False
         held = _held
     if not held:
         return
-    release(restore_slot=bool(success))
+    release(restore_slot=True)
 
 
 def schedule_release(delay_s: float | None = None) -> None:
@@ -230,7 +243,7 @@ def _release_safe() -> None:
 
 def release(*, nowait: bool = False, restore_slot: bool = False) -> None:
     """Start llama-server again if this lease stopped it. Always clears the hold."""
-    global _held, _generating, _stopped_server, _config
+    global _held, _generating, _stopped_server, _config, _restoring
     with _lock:
         _cancel_idle()
         if not _held:
@@ -241,6 +254,21 @@ def release(*, nowait: bool = False, restore_slot: bool = False) -> None:
         _held = False
         _generating = False
         _stopped_server = False
+        _restoring = should_start
+    try:
+        _start_chat(cfg, nowait=nowait, restore_slot=restore_slot, should_start=should_start)
+    finally:
+        with _lock:
+            _restoring = False
+
+
+def _start_chat(
+    cfg: dict[str, Any] | None,
+    *,
+    nowait: bool,
+    restore_slot: bool,
+    should_start: bool,
+) -> None:
     url = _base_url(cfg)
     args = _launch_args(cfg)
     if not should_start:
@@ -337,12 +365,13 @@ def reset_for_tests(
     args: Callable[[dict[str, Any] | None], list[str] | None] | None = None,
 ) -> None:
     """Clear lease state and optionally install fakes. Tests only."""
-    global _held, _generating, _stopped_server, _config
+    global _held, _generating, _stopped_server, _config, _restoring
     global _stop_fn, _ensure_fn, _nowait_fn, _args_fn, _status
     global _marker_path
     with _lock:
         _cancel_idle()
         _held = False
+        _restoring = False
         _generating = False
         _stopped_server = False
         _config = None

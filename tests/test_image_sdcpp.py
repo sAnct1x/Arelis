@@ -628,6 +628,57 @@ def test_second_stop_during_slot_save_still_restores_llama_server(
     assert gpu_lease.is_generating() is False
 
 
+def test_stop_while_chat_comes_back_waits_for_llama_server(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Stop right after sd-cli ends must not end the turn before llama is up."""
+    import threading
+    import time
+
+    from arelis.llm import llama_launch
+
+    events = _install_lease_spies()
+    starting = threading.Event()
+
+    def slow_ensure(url: str, args: list[str] | None) -> None:
+        starting.set()
+        time.sleep(0.4)
+        events.append(("ensure", url, list(args or [])))
+        events.append(("blocked", gpu_lease.chat_blocked()))
+
+    gpu_lease.reset_for_tests(
+        stop=lambda url: events.append(("stop", url)) or True,
+        ensure=slow_ensure,
+        args=lambda _config: ["llama-server"],
+    )
+    monkeypatch.setattr(llama_launch, "save_slot", lambda _url: True)
+    _patch_sdcpp_ready(monkeypatch, tmp_path)
+    config = {
+        "llamacpp": {"base_url": "http://127.0.0.1:8080"},
+        "tools": {"image": {"backend": "sdcpp"}},
+    }
+    tool = ImageTool(
+        comfy_url="http://127.0.0.1:9",
+        output_dir=str(tmp_path / "out"),
+        backend="sdcpp",
+        config=config,
+    )
+
+    async def _run() -> list[str]:
+        task = asyncio.create_task(tool.run(prompt="a red fox"))
+        await asyncio.to_thread(starting.wait, 5)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        return list(events)
+
+    assert [item[0] for item in asyncio.run(_run())] == ["stop", "ensure", "blocked"]
+    assert events[-1] == ("blocked", True)
+    assert gpu_lease.chat_blocked() is False
+
+
 def test_next_launch_restores_llama_if_a_picture_left_it_stopped(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -788,23 +839,20 @@ def test_successful_picture_saves_and_restores_the_chat_slot(
     assert not (slot_dir / llama_launch.SLOT_SAVE_FILENAME).exists()
 
 
-def test_stopped_or_crashed_picture_does_not_wait_on_slot_restore(
+def test_stopped_or_crashed_picture_still_reloads_the_saved_chat_slot(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Stop and crash bring chat back as soon as llama-server is running."""
-    import time
-
+    """A save that worked before the picture is reloaded after Stop or a crash too."""
     from arelis.llm import llama_launch
 
     restored: list[str] = []
 
-    def slow_restore(base_url: str) -> bool:
+    def restore(base_url: str) -> bool:
         del base_url
         restored.append("restore")
-        time.sleep(2)
         return True
 
-    monkeypatch.setattr(llama_launch, "restore_slot", slow_restore)
+    monkeypatch.setattr(llama_launch, "restore_slot", restore)
     monkeypatch.setattr(llama_launch, "save_slot", lambda _url: True)
     monkeypatch.setattr(llama_launch, "clear_slot_file", lambda: None)
 
@@ -827,14 +875,11 @@ def test_stopped_or_crashed_picture_does_not_wait_on_slot_restore(
         backend="sdcpp",
         config=config,
     )
-    started = time.perf_counter()
     result = asyncio.run(tool.run(prompt="a red fox"))
-    elapsed = time.perf_counter() - started
     assert result.ok is False
     assert "[fail:image]" in result.output
     assert [item[0] for item in events] == ["stop", "ensure"]
-    assert restored == []
-    assert elapsed < 1.0
+    assert restored == ["restore"]
 
     # Stop
     events = _install_lease_spies()
@@ -859,14 +904,12 @@ def test_stopped_or_crashed_picture_does_not_wait_on_slot_restore(
         config=config,
     )
     tool.is_cancelled = lambda: held["stop"]
-    started = time.perf_counter()
+    restored.clear()
     result = asyncio.run(tool.run(prompt="a red fox"))
-    elapsed = time.perf_counter() - started
     assert result.ok is False
     assert "stopped" in result.output.lower()
     assert [item[0] for item in events] == ["stop", "ensure"]
-    assert restored == []
-    assert elapsed < 1.0
+    assert restored == ["restore"]
 
 
 def test_startup_recovers_a_paused_llama_server(
