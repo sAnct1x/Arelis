@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 
 import pytest
 from PySide6.QtCore import QEvent, QObject
@@ -96,9 +97,17 @@ def test_frametime_log_writes_one_gate_line_per_frame(tmp_path, monkeypatch) -> 
     log = tmp_path / "frames.csv"
     monkeypatch.setenv("ARELIS_FRAMETIME_LOG", str(log))
     host = _ready_host(tmp_path, monkeypatch)
-    for _ in range(10):
+    # Wait on real frames, not a fixed time: a line needs two frames, so wait until the
+    # log's last frame time has moved past a first one (a stalled runner just waits longer).
+    log_frames, first, deadline = host._frames, None, time.monotonic() + 15
+    while time.monotonic() < deadline:
         host.view.update()
-        QTest.qWait(50)
+        QTest.qWait(20)
+        last = log_frames.last
+        if first is None:
+            first = last
+        elif last != first:
+            break
     host.close()
     host.deleteLater()
     QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
