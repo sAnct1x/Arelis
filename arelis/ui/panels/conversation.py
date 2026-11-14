@@ -388,6 +388,8 @@ class ConversationStage(GlassFrame):
             self._place_parked_orbit()
         if getattr(self, "_idle_mode", False):
             self._fit_idle_prompt()
+        elif hasattr(self, "input"):
+            self._apply_workbench_input_width()
         if hasattr(self, "_drop_overlay"):
             self._drop_overlay.setGeometry(self.rect())
         if hasattr(self, "notify_overlay"):
@@ -732,6 +734,39 @@ class ConversationStage(GlassFrame):
         fm = self.input.fontMetrics()
         return fm.horizontalAdvance(tr("message Arelis…")) + 2 * SPACE["gap"] + 8
 
+    def _composer_reserved_width(self) -> int:
+        """Space the row keeps for margins, gaps, and every widget but the input."""
+        row = getattr(self, "_composer_row", None)
+        if row is None:
+            return 0
+        margins = row.contentsMargins()
+        reserved = margins.left() + margins.right()
+        chrome = 0
+        for i in range(row.count()):
+            item = row.itemAt(i)
+            widget = item.widget() if item is not None else None
+            if widget is None or widget is self.input or widget.isHidden():
+                continue
+            width = widget.minimumWidth() or widget.sizeHint().width()
+            reserved += max(1, int(width))
+            chrome += 1
+        if chrome:
+            reserved += int(row.spacing()) * chrome
+        return reserved
+
+    def _apply_workbench_input_width(self) -> None:
+        """Give the input only the space left after the buttons, then wrap."""
+        if self._idle_mode or not hasattr(self, "input"):
+            return
+        host = getattr(self, "_composer", None)
+        if host is None or self.input.parent() is not host:
+            return
+        reserved = self._composer_reserved_width()
+        avail = int(host.width()) - reserved
+        floor = 48
+        want = max(floor, avail) if avail > 0 else floor
+        self.input.setMinimumWidth(min(self._placeholder_width(), want))
+
     def _fit_workbench_prompt(self) -> None:
         """Wrap and grow until the draft is on screen, then scroll."""
         if self._idle_mode:
@@ -851,10 +886,12 @@ class ConversationStage(GlassFrame):
             self.input.setAlignment(Qt.AlignmentFlag.AlignLeft)
             self.input.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
             # The band gives way to this, so the placeholder reads in full
-            # in a narrow window instead of being squeezed to one letter.
-            self.input.setMinimumWidth(self._placeholder_width())
+            # when there is room. At a narrow chat width the field shrinks
+            # so typed text wraps instead of covering the clear and attach
+            # buttons.
             self.input.setMaximumWidth(16777215)
             self.input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            self._apply_workbench_input_width()
             self.input.show()
             self.input.setClearButtonEnabled(True)
             self._composer.show()
@@ -1002,6 +1039,8 @@ class ConversationStage(GlassFrame):
         self.stop_btn.setVisible(self._busy or self._speaking)
         typing = bool(self.input.text().strip())
         self.clear_btn.setVisible(typing and not self._idle_mode)
+        if not self._idle_mode:
+            self._apply_workbench_input_width()
         if self.confirm_open():
             from arelis.ui.theme import active_theme
 
@@ -1208,20 +1247,25 @@ class ConversationStage(GlassFrame):
     ) -> None:
         from arelis.ui.theme import active_theme
 
+        # Filament used to arm() and hide the card, so only "waiting for you..."
+        # showed and Allow, Deny, and the download size never appeared. The card
+        # must render in every theme. Open the chat tile so it is on screen.
         if active_theme() == "filament":
-            self.confirm.arm(confirm_id, headline or summary)
-        else:
-            self.confirm.ask(
-                confirm_id,
-                tool,
-                summary,
-                detail=detail,
-                note=note,
-                batch_ok=batch_ok,
-                persist_ok=persist_ok,
-                persist_label=persist_label,
-                headline=headline,
-            )
+            win = self.window()
+            opener = getattr(win, "_filament_set_chat_open", None)
+            if callable(opener):
+                opener(True)
+        self.confirm.ask(
+            confirm_id,
+            tool,
+            summary,
+            detail=detail,
+            note=note,
+            batch_ok=batch_ok,
+            persist_ok=persist_ok,
+            persist_label=persist_label,
+            headline=headline,
+        )
         self._sync_composer_buttons()
         self.idle_conditions_changed.emit()
         self._place_parked_orbit()

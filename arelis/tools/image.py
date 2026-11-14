@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import io
 import uuid
 from pathlib import Path
@@ -30,12 +31,25 @@ from arelis.tools.comfy_client import (
     wait_for_image,
 )
 from arelis.tools.comfy_lifecycle import (
+    comfy_is_healthy,
     discover_comfy,
     ensure_comfy_running,
     schedule_comfy_idle_stop,
 )
 from arelis.tools.image_copy import image_progress_line
 from arelis.tools.image_meta import write_sidecar
+from arelis.tools.sdcpp import (
+    NOT_WINDOWS,
+    NOT_YET,
+    STOPPED,
+    GenerationCancelledError,
+    command_from_config,
+    default_size,
+    ensure_files,
+    resolve_backend,
+    run_cli,
+    sdcpp_cfg,
+)
 from arelis.workspace import WorkspaceRoots
 
 # Seeds are drawn from this range so a run is reproducible: the value used is
@@ -298,6 +312,8 @@ class ImageTool:
         sampler: str = "euler",
         default_n: int = 1,
         on_progress: Any = None,
+        backend: str = "sdcpp",
+        config: dict[str, Any] | None = None,
     ) -> None:
         self.comfy_url = comfy_url.rstrip("/")
         self.output_dir = Path(output_dir)
@@ -315,6 +331,9 @@ class ImageTool:
         self.sampler = (sampler or "euler").strip() or "euler"
         self.default_n = clamp_n(default_n, 1)
         self._on_progress = on_progress
+        self.backend = resolve_backend(backend)
+        self._config = config
+        self.is_cancelled: Any = None
 
     def set_progress(self, fn: Any) -> None:
         """Optional ``fn(line)`` for the composer shimmer while Comfy samples."""
@@ -435,6 +454,253 @@ class ImageTool:
             width, height = opened.size
         return local_path, width, height
 
+    def _cancelled(self) -> bool:
+        probe = getattr(self, "is_cancelled", None)
+        if probe is None:
+            return False
+        try:
+            return bool(probe())
+        except Exception:
+            # A broken cancel hook must not crash the picture job.
+            return False
+
+    def _comfy_configured(self) -> bool:
+        """True when a ComfyUI install or server is actually set up."""
+        if self.backend == "comfy":
+            return True
+        if (self.launch_cwd or "").strip():
+            return True
+        if discover_comfy() is not None:
+            return True
+        try:
+            if comfy_is_healthy(self.comfy_url, timeout_s=1.0):
+                return True
+        except Exception:
+            # A down or unreachable Comfy URL is treated as not configured.
+            return False
+        return False
+
+    def confirm_detail(self, args: dict[str, Any]) -> str:
+        if self.backend != "sdcpp":
+            return ""
+        from arelis.tools.sdcpp import allow_detail
+
+        return allow_detail(args, config=self._config)
+
+    def _sdcpp_supported(self) -> bool:
+        import sys
+
+        return sys.platform == "win32"
+
+    def _resolve_sdcpp_size(self, kwargs: dict[str, Any]) -> tuple[int, int]:
+        width = kwargs.get("width")
+        height = kwargs.get("height")
+        if width is not None or height is not None:
+            if width is None or height is None:
+                raise ValueError(
+                    "Give both width and height, or an aspect. A single "
+                    "dimension is ambiguous."
+                )
+            return clamp_size(int(width), int(height))
+        aspect = str(kwargs.get("aspect") or "").strip()
+        default_w, default_h = default_size(self._config)
+        if aspect:
+            return size_for_aspect(aspect, max(default_w, default_h))
+        return clamp_size(default_w, default_h)
+
+    async def _run_sdcpp(
+        self,
+        kwargs: dict[str, Any],
+        *,
+        prompt: str,
+        negative: str,
+        seed: int,
+        steps: int,
+        cfg: float,
+        style: str,
+        n: int,
+        upscale: bool,
+        remove_bg: bool,
+    ) -> ToolResult:
+        from arelis.tools.gpu_lease import acquire, mark_generation_done, set_status
+        from arelis.tools.image_models import ModelError
+
+        if not self._sdcpp_supported():
+            return ToolResult(ok=False, output=f"[fail:image] {NOT_WINDOWS}")
+        try:
+            width, height = self._resolve_sdcpp_size(kwargs)
+        except ValueError as exc:
+            return ToolResult(ok=False, output=f"[fail:image] {exc}")
+        if self._cancelled():
+            return ToolResult(ok=False, output=f"[fail:image] {STOPPED}")
+        try:
+            files = ensure_files(self._config, cancelled=self._cancelled)
+        except ModelError as exc:
+            return ToolResult(ok=False, output=f"[fail:image] {exc}")
+        set_status(self._note)
+        _bind_progress_loop()
+        acquired = False
+        success = False
+        prompt_path: Path | None = None
+        idle = sdcpp_cfg(self._config).get("idle_timeout_s", 90)
+        try:
+            # Off the asyncio thread so a slow slot save (and the stop
+            # that follows) cannot freeze chat lines or Stop. If Stop
+            # cancels this task mid-save, wait for acquire to finish
+            # even if Stop is pressed again, then let the finally
+            # block restore llama-server if the lease already stopped it.
+            acquire_done = asyncio.create_task(
+                asyncio.to_thread(acquire, self._config)
+            )
+            try:
+                await asyncio.shield(acquire_done)
+            except asyncio.CancelledError:
+                # A later Stop can cancel this wait too. Keep waiting
+                # until acquire actually finishes so finally can restore.
+                while not acquire_done.done():
+                    try:
+                        await asyncio.shield(acquire_done)
+                    except asyncio.CancelledError:
+                        continue
+                    except Exception:
+                        # acquire already cleared the hold if it failed.
+                        break
+                if (
+                    acquire_done.done()
+                    and not acquire_done.cancelled()
+                    and acquire_done.exception() is None
+                ):
+                    acquired = True
+                raise
+            acquired = True
+            if self._cancelled():
+                raise GenerationCancelledError()
+            paths: list[str] = []
+            seeds: list[int] = []
+            out_w, out_h = width, height
+            prompt_path = self.output_dir / ".sdcpp-prompt.txt"
+            prompt_path.write_text(prompt, encoding="utf-8")
+            section = sdcpp_cfg(self._config)
+            job_steps = int(kwargs.get("steps") or section.get("steps") or 4)
+            job_cfg = float(
+                kwargs.get("cfg") if kwargs.get("cfg") is not None
+                else section.get("cfg") or 1.0
+            )
+            job_sampler = str(section.get("sampler") or "euler")
+            for index in range(n):
+                if self._cancelled():
+                    raise GenerationCancelledError()
+                job_seed = (seed + index) % _SEED_SPACE
+                self._note(image_progress_line(index=index + 1, n=n))
+                dest = self.output_dir / f"{uuid.uuid4().hex}.png"
+                args = command_from_config(
+                    self._config,
+                    binary=files["binary"],
+                    model=files["model"],
+                    llm=files["llm"],
+                    vae=files["vae"],
+                    prompt_file=prompt_path,
+                    output=dest,
+                    width=width,
+                    height=height,
+                    steps=job_steps,
+                    cfg=job_cfg,
+                    sampler=job_sampler,
+                    seed=job_seed,
+                )
+                await asyncio.to_thread(
+                    run_cli,
+                    args,
+                    dest,
+                    cancelled=self._cancelled,
+                    cwd=files["model"].parent,
+                )
+                dest, out_w, out_h = self._finish_pixels(
+                    dest, upscale=upscale, remove_bg=remove_bg
+                )
+                self._write_meta(
+                    dest,
+                    prompt=prompt,
+                    negative=negative,
+                    seed=job_seed,
+                    checkpoint="flux-2-klein-4b-Q4_0",
+                    width=out_w,
+                    height=out_h,
+                    style=style,
+                    mode="txt2img",
+                    source="",
+                    denoise=1.0,
+                    n=n,
+                )
+                paths.append(str(dest))
+                seeds.append(job_seed)
+            listed = ", ".join(paths)
+            extra = f", style={style}" if style else ""
+            seed_bit = (
+                f"seed={seeds[0]}"
+                if len(seeds) == 1
+                else f"seeds={', '.join(str(s) for s in seeds)}"
+            )
+            success = True
+            return ToolResult(
+                ok=True,
+                output=(
+                    f"Image saved to {listed} ({seed_bit}, "
+                    f"{out_w}x{out_h}{extra})."
+                ),
+                data={
+                    "path": paths[0],
+                    "paths": paths,
+                    "prompt_id": "",
+                    "seed": seeds[0],
+                    "seeds": seeds,
+                    "checkpoint": "flux-2-klein-4b-Q4_0",
+                    "width": out_w,
+                    "height": out_h,
+                    "style": style,
+                    "source": "",
+                    "denoise": 1.0,
+                    "mode": "txt2img",
+                    "n": n,
+                },
+            )
+        except GenerationCancelledError:
+            return ToolResult(ok=False, output=f"[fail:image] {STOPPED}")
+        except ModelError as exc:
+            return ToolResult(ok=False, output=f"[fail:image] {exc}")
+        except Exception as exc:
+            return ToolResult(ok=False, output=f"[fail:image] image failed: {exc}")
+        finally:
+            if prompt_path is not None:
+                try:
+                    prompt_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+            if acquired:
+                try:
+                    idle_s: float | None = float(idle)
+                except (TypeError, ValueError):
+                    idle_s = None
+                # Stop can land while chat is coming back. Keep this turn
+                # open until llama-server is up, or the next Send reaches a
+                # server that is still loading and fails.
+                restore = asyncio.ensure_future(
+                    asyncio.to_thread(
+                        mark_generation_done, success=success, idle_s=idle_s
+                    )
+                )
+                stopped = False
+                while True:
+                    try:
+                        await asyncio.shield(restore)
+                        break
+                    except asyncio.CancelledError:
+                        if restore.cancelled():
+                            raise
+                        stopped = True
+                if stopped:
+                    raise asyncio.CancelledError()
+
     async def run(self, **kwargs: Any) -> ToolResult:
         prompt = str(kwargs.get("prompt") or "").strip()
         if not prompt:
@@ -544,6 +810,23 @@ class ImageTool:
                     "mode": "remove_bg",
                     "n": 1,
                 },
+            )
+
+        if source is not None:
+            if not self._comfy_configured():
+                return ToolResult(ok=False, output=f"[fail:image] {NOT_YET}")
+        elif self.backend != "comfy":
+            return await self._run_sdcpp(
+                kwargs,
+                prompt=prompt,
+                negative=negative,
+                seed=seed,
+                steps=steps,
+                cfg=cfg,
+                style=style,
+                n=n,
+                upscale=upscale,
+                remove_bg=remove_bg,
             )
 
         launch_cwd, auto_start = self._launch_target()
@@ -852,17 +1135,46 @@ class ImageTool:
             return ToolResult(ok=False, output=f"[fail:image] image failed: {exc}")
 
 
+# Set when a progress line is posted on the event loop, so a worker-thread
+# resume line can still reach chat while llama-server is starting.
+_progress_loop: Any = None
+
+
+def _bind_progress_loop() -> None:
+    """Remember the asyncio loop so lease status posted off-thread still lands."""
+    global _progress_loop
+    try:
+        _progress_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        pass
+
+
 def schedule_image_progress(bus: Any, line: str) -> None:
-    """Push a composer shimmer line without blocking the sampler poll."""
+    """Push pause wording to chat, or a composer shimmer for sampler lines."""
     import asyncio
 
     from arelis.core.events import Event, EventType
+    from arelis.tools.gpu_lease import CHAT_PAUSED, CHAT_RESUMING
 
+    if line in {CHAT_PAUSED, CHAT_RESUMING}:
+        event = Event(EventType.REPLY_NOTE, {"message": line})
+    else:
+        event = Event(EventType.STATUS, {"message": line, "image_progress": True})
+
+    def _queue(loop: asyncio.AbstractEventLoop) -> None:
+        loop.create_task(bus.publish(event))
+
+    global _progress_loop
     try:
-        asyncio.get_running_loop().create_task(
-            bus.publish(
-                Event(EventType.STATUS, {"message": line, "image_progress": True})
-            )
-        )
+        loop = asyncio.get_running_loop()
     except RuntimeError:
-        pass
+        loop = _progress_loop
+        if loop is None or not loop.is_running():
+            return
+        try:
+            loop.call_soon_threadsafe(_queue, loop)
+        except RuntimeError:
+            return
+        return
+    _progress_loop = loop
+    _queue(loop)

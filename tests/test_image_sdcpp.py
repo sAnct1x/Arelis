@@ -1,0 +1,1034 @@
+"""Built-in sd.cpp image backend: lease, default, download cleanup, command line."""
+
+from __future__ import annotations
+
+import asyncio
+import subprocess
+from pathlib import Path
+from typing import Any
+
+import httpx
+import pytest
+import yaml
+
+from arelis.tools import gpu_lease
+from arelis.tools.image import ImageTool
+from arelis.tools.image_models import ModelError
+from arelis.tools.sdcpp import (
+    NOT_YET,
+    command_from_config,
+    resolve_backend,
+)
+from arelis.workspace import RootEntry, WorkspaceRoots
+
+
+def _png(path: Path, *, size: tuple[int, int] = (32, 32)) -> Path:
+    from PIL import Image
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", size, (40, 120, 80)).save(path, format="PNG")
+    return path
+
+
+def _files(tmp_path: Path) -> dict[str, Path]:
+    folder = tmp_path / "sdcpp"
+    folder.mkdir(parents=True, exist_ok=True)
+    return {
+        "binary": folder / "sd-cli.exe",
+        "model": folder / "flux-2-klein-4b-Q4_0.gguf",
+        "llm": folder / "Qwen3-4B-Q4_K_M.gguf",
+        "vae": folder / "flux2-vae.safetensors",
+    }
+
+
+def _write_output(path: Path) -> None:
+    _png(path)
+
+
+@pytest.fixture(autouse=True)
+def _reset_lease() -> None:
+    from arelis.tools import sdcpp
+
+    gpu_lease.reset_for_tests()
+    sdcpp.reset_for_tests()
+    yield
+    gpu_lease.reset_for_tests()
+    sdcpp.reset_for_tests()
+
+
+def _install_lease_spies() -> list[tuple[Any, ...]]:
+    events: list[tuple[Any, ...]] = []
+
+    def stop(url: str) -> bool:
+        events.append(("stop", url))
+        return True
+
+    def ensure(url: str, args: list[str] | None) -> None:
+        events.append(("ensure", url, list(args or [])))
+
+    def nowait(url: str, args: list[str] | None) -> None:
+        events.append(("nowait", url, list(args or [])))
+
+    gpu_lease.reset_for_tests(
+        stop=stop,
+        ensure=ensure,
+        nowait=nowait,
+        args=lambda _config: ["llama-server", "--host", "127.0.0.1", "--port", "8080"],
+    )
+    return events
+
+
+def _patch_sdcpp_ready(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    files = _files(tmp_path)
+
+    def ensure_files(config: dict[str, Any] | None = None, *, cancelled=None):
+        del config, cancelled
+        return files
+
+    def run_cli(args: list[str], output: Path, *, cancelled=None, **kwargs: Any) -> None:
+        del args, kwargs
+        if cancelled is not None and cancelled():
+            from arelis.tools.sdcpp import GenerationCancelledError
+
+            raise GenerationCancelledError()
+        _write_output(output)
+
+    monkeypatch.setattr("arelis.tools.image.ensure_files", ensure_files)
+    monkeypatch.setattr("arelis.tools.image.run_cli", run_cli)
+    monkeypatch.setattr(
+        "arelis.tools.image.ImageTool._sdcpp_supported", lambda self: True
+    )
+
+
+def test_lease_stops_then_restores_llama_server(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    events = _install_lease_spies()
+    _patch_sdcpp_ready(monkeypatch, tmp_path)
+    config = {
+        "llamacpp": {"base_url": "http://127.0.0.1:8080"},
+        "tools": {"image": {"backend": "sdcpp", "sdcpp": {"idle_timeout_s": 0}}},
+    }
+    tool = ImageTool(
+        comfy_url="http://127.0.0.1:9",
+        output_dir=str(tmp_path / "out"),
+        backend="sdcpp",
+        config=config,
+    )
+    result = asyncio.run(tool.run(prompt="a red fox"))
+    assert result.ok is True
+    assert [item[0] for item in events] == ["stop", "ensure"]
+    assert events[0][1] == "http://127.0.0.1:8080"
+    assert events[1][1] == "http://127.0.0.1:8080"
+
+
+def test_lease_restores_llama_server_when_sdcpp_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    events = _install_lease_spies()
+    _patch_sdcpp_ready(monkeypatch, tmp_path)
+
+    def run_cli(args: list[str], output: Path, *, cancelled=None, **kwargs: Any) -> None:
+        del args, output, cancelled, kwargs
+        raise RuntimeError("The picture program stopped before it finished.")
+
+    monkeypatch.setattr("arelis.tools.image.run_cli", run_cli)
+    config = {
+        "llamacpp": {"base_url": "http://127.0.0.1:8080"},
+        "tools": {"image": {"backend": "sdcpp"}},
+    }
+    tool = ImageTool(
+        comfy_url="http://127.0.0.1:9",
+        output_dir=str(tmp_path / "out"),
+        backend="sdcpp",
+        config=config,
+    )
+    result = asyncio.run(tool.run(prompt="a red fox"))
+    assert result.ok is False
+    assert "[fail:image]" in result.output
+    assert [item[0] for item in events] == ["stop", "ensure"]
+
+
+def test_lease_restores_llama_server_when_generation_is_cancelled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    events = _install_lease_spies()
+    _patch_sdcpp_ready(monkeypatch, tmp_path)
+    held = {"stop": False}
+
+    def stop(url: str) -> bool:
+        held["stop"] = True
+        events.append(("stop", url))
+        return True
+
+    gpu_lease.reset_for_tests(
+        stop=stop,
+        ensure=lambda url, args: events.append(("ensure", url, list(args or []))),
+        nowait=lambda url, args: events.append(("nowait", url, list(args or []))),
+        args=lambda _config: ["llama-server"],
+    )
+    config = {
+        "llamacpp": {"base_url": "http://127.0.0.1:8080"},
+        "tools": {"image": {"backend": "sdcpp"}},
+    }
+    tool = ImageTool(
+        comfy_url="http://127.0.0.1:9",
+        output_dir=str(tmp_path / "out"),
+        backend="sdcpp",
+        config=config,
+    )
+    tool.is_cancelled = lambda: held["stop"]
+    result = asyncio.run(tool.run(prompt="a red fox"))
+    assert result.ok is False
+    assert "stopped" in result.output.lower()
+    assert [item[0] for item in events] == ["stop", "ensure"]
+
+
+def test_successful_run_restores_chat_immediately(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    events = _install_lease_spies()
+    _patch_sdcpp_ready(monkeypatch, tmp_path)
+    config = {
+        "llamacpp": {"base_url": "http://127.0.0.1:8080"},
+        "tools": {"image": {"backend": "sdcpp", "sdcpp": {"idle_timeout_s": 90}}},
+    }
+    tool = ImageTool(
+        comfy_url="http://127.0.0.1:9",
+        output_dir=str(tmp_path / "out"),
+        backend="sdcpp",
+        config=config,
+    )
+    result = asyncio.run(tool.run(prompt="a red fox"))
+    assert result.ok is True
+    assert gpu_lease.is_generating() is False
+    assert gpu_lease.is_held() is False
+    assert [item[0] for item in events] == ["stop", "ensure"]
+
+
+def test_quit_stops_in_flight_sdcli_before_starting_llama_server() -> None:
+    from arelis.tools import sdcpp
+
+    order: list[str] = []
+
+    class _FakeProc:
+        def __init__(self) -> None:
+            self.pid = 4242
+            self._code: int | None = None
+
+        def poll(self) -> int | None:
+            return self._code
+
+        def terminate(self) -> None:
+            order.append("stop-sdcli")
+            self._code = 1
+
+        def kill(self) -> None:
+            order.append("kill-sdcli")
+            self._code = 1
+
+        def wait(self, timeout: float | None = None) -> int:
+            del timeout
+            if self._code is None:
+                raise subprocess.TimeoutExpired(cmd="sd-cli", timeout=0)
+            return self._code
+
+    def nowait(url: str, args: list[str] | None) -> None:
+        del url, args
+        order.append("start-llama")
+
+    gpu_lease.reset_for_tests(
+        stop=lambda url: True,
+        ensure=lambda url, args: None,
+        nowait=nowait,
+        args=lambda _config: ["llama-server"],
+    )
+    gpu_lease.acquire({"llamacpp": {"base_url": "http://127.0.0.1:8080"}})
+    fake = _FakeProc()
+    sdcpp.attach_proc_for_tests(fake)
+    gpu_lease.release_on_quit()
+    assert fake.poll() is not None
+    assert "stop-sdcli" in order
+    assert "start-llama" in order
+    assert order.index("stop-sdcli") < order.index("start-llama")
+
+
+def test_image_backend_defaults_to_sdcpp_and_comfy_is_optional(tmp_path: Path) -> None:
+    assert resolve_backend(None) == "sdcpp"
+    assert resolve_backend("") == "sdcpp"
+    assert resolve_backend("ComfyUI") == "comfy"
+    shipped = yaml.safe_load(
+        (Path(__file__).resolve().parents[1] / "arelis" / "config" / "default.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert resolve_backend(str(shipped["tools"]["image"]["backend"])) == "sdcpp"
+    tool = ImageTool(comfy_url="http://127.0.0.1:9", output_dir=str(tmp_path))
+    assert tool.backend == "sdcpp"
+    comfy = ImageTool(
+        comfy_url="http://127.0.0.1:9", output_dir=str(tmp_path), backend="comfy"
+    )
+    assert comfy.backend == "comfy"
+
+
+def test_sdcpp_download_cleans_up_partial_files_on_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("arelis.tools.sdcpp.install_root", lambda config=None: tmp_path)
+    monkeypatch.setattr(
+        "arelis.tools.sdcpp.bin_dir", lambda config=None: tmp_path / "bin"
+    )
+    monkeypatch.setattr(
+        "arelis.tools.sdcpp.file_is_ready",
+        lambda spec, config=None: spec.key != "model",
+    )
+
+    class _Stream:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args: object) -> bool:
+            return False
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def iter_bytes(self, size: int):
+            del size
+            yield b"partial" * 1024
+            raise httpx.ReadError("cut off")
+
+    class _Down:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args: object) -> bool:
+            return False
+
+        def stream(self, *args: object, **kwargs: object):
+            return _Stream()
+
+    monkeypatch.setattr(httpx, "Client", lambda *args, **kwargs: _Down())
+    from arelis.tools.sdcpp import ensure_files
+
+    with pytest.raises(ModelError):
+        ensure_files({"tools": {"image": {"backend": "sdcpp"}}})
+    leftovers = [path for path in tmp_path.rglob("*") if path.suffix in {".part", ".gguf"}]
+    assert leftovers == []
+
+
+def test_sdcpp_command_uses_config_flags() -> None:
+    cmd = command_from_config(
+        {
+            "tools": {
+                "image": {
+                    "sdcpp": {
+                        "width": 768,
+                        "height": 512,
+                        "steps": 8,
+                        "cfg": 1.5,
+                        "sampler": "euler",
+                        "offload_to_cpu": False,
+                        "diffusion_fa": True,
+                        "vae_tiling": True,
+                    }
+                }
+            }
+        },
+        binary="sd-cli.exe",
+        model="flux-2-klein-4b-Q4_0.gguf",
+        llm="Qwen3-4B-Q4_K_M.gguf",
+        vae="flux2-vae.safetensors",
+        prompt_file="prompt.txt",
+        output="out.png",
+        seed=42,
+    )
+    assert cmd[0] == "sd-cli.exe"
+    assert cmd[cmd.index("--diffusion-model") + 1] == "flux-2-klein-4b-Q4_0.gguf"
+    assert cmd[cmd.index("--llm") + 1] == "Qwen3-4B-Q4_K_M.gguf"
+    assert cmd[cmd.index("--vae") + 1] == "flux2-vae.safetensors"
+    assert cmd[cmd.index("--prompt-file") + 1] == "prompt.txt"
+    assert cmd[cmd.index("-W") + 1] == "768"
+    assert cmd[cmd.index("-H") + 1] == "512"
+    assert cmd[cmd.index("--steps") + 1] == "8"
+    assert cmd[cmd.index("--cfg-scale") + 1] == "1.5"
+    assert cmd[cmd.index("--sampling-method") + 1] == "euler"
+    assert cmd[cmd.index("--seed") + 1] == "42"
+    assert "--offload-to-cpu" not in cmd
+    assert "--diffusion-fa" in cmd
+    assert "--vae-tiling" in cmd
+    assert cmd[cmd.index("-o") + 1] == "out.png"
+    default = command_from_config(
+        {},
+        binary="sd-cli.exe",
+        model="m.gguf",
+        llm="l.gguf",
+        vae="v.safetensors",
+        prompt_file="p.txt",
+        output="o.png",
+        seed=7,
+    )
+    assert default[default.index("-W") + 1] == "1024"
+    assert default[default.index("-H") + 1] == "1024"
+    assert default[default.index("--steps") + 1] == "4"
+    assert default[default.index("--cfg-scale") + 1] == "1.0"
+    assert "--offload-to-cpu" in default
+    assert "--diffusion-fa" in default
+    assert "--vae-tiling" in default
+
+
+def test_image_edit_is_not_yet_unless_comfy_is_configured(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    source = _png(project / "source.png")
+    roots = WorkspaceRoots([RootEntry(name="project", path=project.resolve())])
+    monkeypatch.setattr("arelis.tools.image.discover_comfy", lambda: None)
+    monkeypatch.setattr(
+        "arelis.tools.image.comfy_is_healthy", lambda *args, **kwargs: False
+    )
+    tool = ImageTool(
+        comfy_url="http://127.0.0.1:9",
+        output_dir=str(tmp_path / "out"),
+        backend="sdcpp",
+        workspace=roots,
+        launch_cwd="",
+    )
+    result = asyncio.run(tool.run(prompt="make this a watercolor", path=str(source)))
+    assert result.ok is False
+    assert NOT_YET in result.output
+
+
+def test_picture_lease_posts_pause_wording_to_chat(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from arelis.core.events import EventType
+    from arelis.tools.gpu_lease import CHAT_PAUSED, CHAT_RESUMING
+    from arelis.tools.image import schedule_image_progress
+
+    posted: list[object] = []
+
+    class _Bus:
+        async def publish(self, event: object) -> None:
+            posted.append(event)
+
+    _install_lease_spies()
+    _patch_sdcpp_ready(monkeypatch, tmp_path)
+    config = {
+        "llamacpp": {"base_url": "http://127.0.0.1:8080"},
+        "tools": {"image": {"backend": "sdcpp", "sdcpp": {"idle_timeout_s": 90}}},
+    }
+    tool = ImageTool(
+        comfy_url="http://127.0.0.1:9",
+        output_dir=str(tmp_path / "out"),
+        backend="sdcpp",
+        config=config,
+    )
+    bus = _Bus()
+    tool.set_progress(lambda line: schedule_image_progress(bus, line))
+
+    async def _run() -> object:
+        result = await tool.run(prompt="a red fox")
+        # Let the REPLY_NOTE tasks scheduled in the lease finally block run.
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        return result
+
+    result = asyncio.run(_run())
+    assert result.ok is True
+    notes = [
+        event
+        for event in posted
+        if getattr(event, "type", None) == EventType.REPLY_NOTE
+    ]
+    messages = [str(event.payload.get("message") or "") for event in notes]
+    assert CHAT_PAUSED in messages
+    assert CHAT_RESUMING in messages
+    assert all(not getattr(event, "payload", {}).get("image_progress") for event in notes)
+
+def test_restore_does_not_block_the_event_loop_and_posts_resuming_first(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Restore must run off the asyncio thread so the resume line can post."""
+    import time
+
+    from arelis.tools.gpu_lease import CHAT_RESUMING
+    from arelis.tools.image import schedule_image_progress
+
+    order: list[str] = []
+
+    def stop(url: str) -> bool:
+        del url
+        return True
+
+    def ensure(url: str, args: list[str] | None) -> None:
+        del url, args
+        order.append("ensure_start")
+        time.sleep(0.4)
+        order.append("ensure_end")
+
+    gpu_lease.reset_for_tests(
+        stop=stop,
+        ensure=ensure,
+        nowait=lambda url, args: None,
+        args=lambda _config: ["llama-server"],
+    )
+    _patch_sdcpp_ready(monkeypatch, tmp_path)
+    config = {
+        "llamacpp": {"base_url": "http://127.0.0.1:8080"},
+        "tools": {"image": {"backend": "sdcpp", "sdcpp": {"idle_timeout_s": 90}}},
+    }
+    tool = ImageTool(
+        comfy_url="http://127.0.0.1:9",
+        output_dir=str(tmp_path / "out"),
+        backend="sdcpp",
+        config=config,
+    )
+
+    class _Bus:
+        async def publish(self, event: object) -> None:
+            message = str(getattr(event, "payload", {}).get("message") or "")
+            if message == CHAT_RESUMING:
+                order.append("resuming")
+
+    bus = _Bus()
+    tool.set_progress(lambda line: schedule_image_progress(bus, line))
+
+    async def _run() -> object:
+        async def ticker() -> None:
+            while True:
+                order.append("tick")
+                await asyncio.sleep(0.05)
+
+        tick_task = asyncio.create_task(ticker())
+        try:
+            return await tool.run(prompt="a red fox")
+        finally:
+            tick_task.cancel()
+            try:
+                await tick_task
+            except asyncio.CancelledError:
+                pass
+
+    result = asyncio.run(_run())
+    assert result.ok is True
+    assert "ensure_start" in order
+    assert "ensure_end" in order
+    start = order.index("ensure_start")
+    end = order.index("ensure_end")
+    mid = order[start + 1 : end]
+    assert "tick" in mid
+    assert "resuming" in mid
+
+
+def test_acquire_does_not_block_the_event_loop_during_a_slow_save(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Saving the chat slot must run off the asyncio thread so Stop still works."""
+    import time
+
+    from arelis.llm import llama_launch
+
+    order: list[str] = []
+
+    def slow_save(url: str) -> bool:
+        del url
+        order.append("save_start")
+        time.sleep(0.4)
+        order.append("save_end")
+        return True
+
+    monkeypatch.setattr(llama_launch, "save_slot", slow_save)
+    _install_lease_spies()
+    _patch_sdcpp_ready(monkeypatch, tmp_path)
+    config = {
+        "llamacpp": {"base_url": "http://127.0.0.1:8080"},
+        "tools": {"image": {"backend": "sdcpp", "sdcpp": {"idle_timeout_s": 90}}},
+    }
+    tool = ImageTool(
+        comfy_url="http://127.0.0.1:9",
+        output_dir=str(tmp_path / "out"),
+        backend="sdcpp",
+        config=config,
+    )
+
+    async def _run() -> object:
+        async def ticker() -> None:
+            while True:
+                order.append("tick")
+                await asyncio.sleep(0.05)
+
+        tick_task = asyncio.create_task(ticker())
+        try:
+            return await tool.run(prompt="a red fox")
+        finally:
+            tick_task.cancel()
+            try:
+                await tick_task
+            except asyncio.CancelledError:
+                pass
+
+    result = asyncio.run(_run())
+    assert result.ok is True
+    assert "save_start" in order
+    assert "save_end" in order
+    start = order.index("save_start")
+    end = order.index("save_end")
+    assert "tick" in order[start + 1 : end]
+
+
+def test_second_stop_during_slot_save_still_restores_llama_server(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A second Stop mid-save must still wait for acquire and restore chat."""
+    import time
+
+    from arelis.llm import llama_launch
+
+    events = _install_lease_spies()
+    started = asyncio.Event()
+    loop_holder: dict[str, asyncio.AbstractEventLoop] = {}
+
+    def slow_save(url: str) -> bool:
+        del url
+        loop_holder["loop"].call_soon_threadsafe(started.set)
+        time.sleep(0.4)
+        return True
+
+    monkeypatch.setattr(llama_launch, "save_slot", slow_save)
+    _patch_sdcpp_ready(monkeypatch, tmp_path)
+    config = {
+        "llamacpp": {"base_url": "http://127.0.0.1:8080"},
+        "tools": {"image": {"backend": "sdcpp", "sdcpp": {"idle_timeout_s": 90}}},
+    }
+    tool = ImageTool(
+        comfy_url="http://127.0.0.1:9",
+        output_dir=str(tmp_path / "out"),
+        backend="sdcpp",
+        config=config,
+    )
+
+    async def _run() -> None:
+        loop_holder["loop"] = asyncio.get_running_loop()
+        task = asyncio.create_task(tool.run(prompt="a red fox"))
+        await started.wait()
+        await asyncio.sleep(0.05)
+        task.cancel()
+        await asyncio.sleep(0.05)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    asyncio.run(_run())
+    assert [item[0] for item in events] == ["stop", "ensure"]
+    assert gpu_lease.is_held() is False
+    assert gpu_lease.is_generating() is False
+
+
+def test_stop_while_chat_comes_back_waits_for_llama_server(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Stop right after sd-cli ends must not end the turn before llama is up."""
+    import threading
+    import time
+
+    from arelis.llm import llama_launch
+
+    events = _install_lease_spies()
+    starting = threading.Event()
+
+    def slow_ensure(url: str, args: list[str] | None) -> None:
+        starting.set()
+        time.sleep(0.4)
+        events.append(("ensure", url, list(args or [])))
+        events.append(("blocked", gpu_lease.chat_blocked()))
+
+    gpu_lease.reset_for_tests(
+        stop=lambda url: events.append(("stop", url)) or True,
+        ensure=slow_ensure,
+        args=lambda _config: ["llama-server"],
+    )
+    monkeypatch.setattr(llama_launch, "save_slot", lambda _url: True)
+    _patch_sdcpp_ready(monkeypatch, tmp_path)
+    config = {
+        "llamacpp": {"base_url": "http://127.0.0.1:8080"},
+        "tools": {"image": {"backend": "sdcpp"}},
+    }
+    tool = ImageTool(
+        comfy_url="http://127.0.0.1:9",
+        output_dir=str(tmp_path / "out"),
+        backend="sdcpp",
+        config=config,
+    )
+
+    async def _run() -> list[str]:
+        task = asyncio.create_task(tool.run(prompt="a red fox"))
+        await asyncio.to_thread(starting.wait, 5)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        return list(events)
+
+    assert [item[0] for item in asyncio.run(_run())] == ["stop", "ensure", "blocked"]
+    assert events[-1] == ("blocked", True)
+    assert gpu_lease.chat_blocked() is False
+
+
+def test_next_launch_restores_llama_if_a_picture_left_it_stopped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+
+    marker = tmp_path / "gpu-lease.json"
+    events: list[tuple[Any, ...]] = []
+    saved = ["llama-server", "--host", "127.0.0.1", "--port", "8090"]
+
+    def stop(url: str) -> bool:
+        events.append(("stop", url))
+        return True
+
+    def ensure(url: str, args: list[str] | None) -> None:
+        events.append(("ensure", url, list(args or [])))
+
+    def nowait(url: str, args: list[str] | None) -> None:
+        events.append(("nowait", url, list(args or [])))
+
+    gpu_lease.reset_for_tests(stop=stop, ensure=ensure, nowait=nowait, args=lambda _c: list(saved))
+    gpu_lease.set_marker_path(marker)
+    monkeypatch.setattr("arelis.tools.gpu_lease._server_up", lambda _url: False)
+    gpu_lease.acquire({"llamacpp": {"base_url": "http://127.0.0.1:8090"}})
+    assert marker.is_file()
+    payload = json.loads(marker.read_text(encoding="utf-8"))
+    assert payload["args"] == saved
+    assert payload["base_url"] == "http://127.0.0.1:8090"
+    # Hard kill: in-memory lease state is gone, the marker file remains.
+    snap = marker.read_text(encoding="utf-8")
+    gpu_lease.reset_for_tests(
+        stop=stop,
+        ensure=ensure,
+        nowait=nowait,
+        args=lambda _c: ["llama-server", "--port", "8080"],
+    )
+    gpu_lease.set_marker_path(marker)
+    marker.write_text(snap, encoding="utf-8")
+    events.clear()
+    monkeypatch.setattr("arelis.tools.gpu_lease._server_up", lambda _url: False)
+    assert gpu_lease.recover_paused_server({"llamacpp": {"base_url": "http://127.0.0.1:8090"}}) is True
+    assert events == [("ensure", "http://127.0.0.1:8090", saved)]
+    assert not marker.is_file()
+
+
+def test_successful_picture_saves_and_restores_the_chat_slot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Arelis-built launch lines get --slot-save-path; a replay is left as-is.
+
+    Save runs before llama-server is stopped. Restore runs only after a
+    successful picture brings it back. A server that cannot save just
+    continues, with no error in chat.
+    """
+    from arelis.llm import llama_launch
+    from arelis.llm.llama_launch import llama_server_args
+
+    slot_dir = tmp_path / "slots"
+    monkeypatch.setattr(llama_launch, "slot_save_dir", lambda: slot_dir)
+
+    built = llama_server_args(
+        binary="llama-server",
+        model="m.gguf",
+        mmproj="p.gguf",
+        template="t.jinja",
+        config={"llamacpp": {"avatar_headroom": False}},
+    )
+    assert built[built.index("--slot-save-path") + 1] == str(slot_dir)
+    assert llama_launch.slot_save_dir() == slot_dir
+
+    replayed = ["llama-server", "-m", "model.gguf", "--port", "8080"]
+    llama_launch.remember_launch(replayed, cwd="/tmp/hand-started")
+    try:
+        assert llama_launch.restore_args(
+            {"llamacpp": {"base_url": "http://127.0.0.1:8080"}}
+        ) == replayed
+        assert "--slot-save-path" not in llama_launch.restore_args({})
+    finally:
+        llama_launch._saved_args = None
+        llama_launch._saved_cwd = None
+
+    events: list[Any] = []
+    status: list[str] = []
+
+    def fake_get(url: str, **kwargs: Any) -> httpx.Response:
+        del kwargs
+        events.append(("get", str(url)))
+        if str(url).rstrip("/").endswith("/slots"):
+            return httpx.Response(200, json=[{"id": 0}])
+        raise httpx.ConnectError("unexpected get")
+
+    def fake_post(url: str, **kwargs: Any) -> httpx.Response:
+        payload = kwargs.get("json")
+        events.append(("post", str(url), payload))
+        text = str(url)
+        if "action=save" in text:
+            slot_dir.mkdir(parents=True, exist_ok=True)
+            (slot_dir / llama_launch.SLOT_SAVE_FILENAME).write_bytes(b"kv")
+            return httpx.Response(200, json={"id_slot": 0, "n_saved": 8, "n_written": 2})
+        if "action=restore" in text:
+            return httpx.Response(200, json={"id_slot": 0, "n_restored": 8, "n_read": 2})
+        raise httpx.ConnectError("unexpected post")
+
+    monkeypatch.setattr(llama_launch.httpx, "get", fake_get)
+    monkeypatch.setattr(llama_launch.httpx, "post", fake_post)
+
+    lease_events = _install_lease_spies()
+    gpu_lease.set_status(status.append)
+    _patch_sdcpp_ready(monkeypatch, tmp_path)
+    config = {
+        "llamacpp": {"base_url": "http://127.0.0.1:8080"},
+        "tools": {"image": {"backend": "sdcpp", "sdcpp": {"idle_timeout_s": 90}}},
+    }
+    tool = ImageTool(
+        comfy_url="http://127.0.0.1:9",
+        output_dir=str(tmp_path / "out"),
+        backend="sdcpp",
+        config=config,
+    )
+    result = asyncio.run(tool.run(prompt="a red fox"))
+    assert result.ok is True
+    assert [item[0] for item in lease_events] == ["stop", "ensure"]
+    posts = [item for item in events if item[0] == "post"]
+    assert any("action=save" in str(item[1]) for item in posts)
+    assert any("action=restore" in str(item[1]) for item in posts)
+    save_at = next(i for i, item in enumerate(events) if item[0] == "post" and "action=save" in str(item[1]))
+    restore_at = next(i for i, item in enumerate(events) if item[0] == "post" and "action=restore" in str(item[1]))
+    assert save_at < restore_at
+    # The lease stop runs after save, and restore after ensure.
+    assert lease_events[0][0] == "stop"
+    assert lease_events[1][0] == "ensure"
+    assert not (slot_dir / llama_launch.SLOT_SAVE_FILENAME).exists()
+    assert all("Chat could not come back" not in line for line in status)
+    for item in posts:
+        assert item[2] == {"filename": llama_launch.SLOT_SAVE_FILENAME}
+
+    # A server without the flag: save fails, the picture still runs, no chat error.
+    events.clear()
+    status.clear()
+
+    def deny_save(url: str, **kwargs: Any) -> httpx.Response:
+        del kwargs
+        events.append(("post", str(url)))
+        if "action=save" in str(url):
+            return httpx.Response(400, json={"error": {"message": "slot save path not set"}})
+        if "action=restore" in str(url):
+            raise AssertionError("restore must not run when no slot was saved")
+        raise httpx.ConnectError("unexpected post")
+
+    monkeypatch.setattr(llama_launch.httpx, "post", deny_save)
+    lease_events = _install_lease_spies()
+    gpu_lease.set_status(status.append)
+    result = asyncio.run(tool.run(prompt="a red fox"))
+    assert result.ok is True
+    assert [item[0] for item in lease_events] == ["stop", "ensure"]
+    assert any("action=save" in str(item[1]) for item in events)
+    assert all("action=restore" not in str(item[1]) for item in events)
+    assert all("Chat could not come back" not in line for line in status)
+    assert not (slot_dir / llama_launch.SLOT_SAVE_FILENAME).exists()
+
+
+def test_stopped_or_crashed_picture_still_reloads_the_saved_chat_slot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A save that worked before the picture is reloaded after Stop or a crash too."""
+    from arelis.llm import llama_launch
+
+    restored: list[str] = []
+
+    def restore(base_url: str) -> bool:
+        del base_url
+        restored.append("restore")
+        return True
+
+    monkeypatch.setattr(llama_launch, "restore_slot", restore)
+    monkeypatch.setattr(llama_launch, "save_slot", lambda _url: True)
+    monkeypatch.setattr(llama_launch, "clear_slot_file", lambda: None)
+
+    # Crash
+    events = _install_lease_spies()
+    _patch_sdcpp_ready(monkeypatch, tmp_path)
+
+    def crash(args: list[str], output: Path, *, cancelled=None, **kwargs: Any) -> None:
+        del args, output, cancelled, kwargs
+        raise RuntimeError("The picture program stopped before it finished.")
+
+    monkeypatch.setattr("arelis.tools.image.run_cli", crash)
+    config = {
+        "llamacpp": {"base_url": "http://127.0.0.1:8080"},
+        "tools": {"image": {"backend": "sdcpp"}},
+    }
+    tool = ImageTool(
+        comfy_url="http://127.0.0.1:9",
+        output_dir=str(tmp_path / "out"),
+        backend="sdcpp",
+        config=config,
+    )
+    result = asyncio.run(tool.run(prompt="a red fox"))
+    assert result.ok is False
+    assert "[fail:image]" in result.output
+    assert [item[0] for item in events] == ["stop", "ensure"]
+    assert restored == ["restore"]
+
+    # Stop
+    events = _install_lease_spies()
+    _patch_sdcpp_ready(monkeypatch, tmp_path)
+    held = {"stop": False}
+
+    def stop(url: str) -> bool:
+        held["stop"] = True
+        events.append(("stop", url))
+        return True
+
+    gpu_lease.reset_for_tests(
+        stop=stop,
+        ensure=lambda url, args: events.append(("ensure", url, list(args or []))),
+        nowait=lambda url, args: events.append(("nowait", url, list(args or []))),
+        args=lambda _config: ["llama-server"],
+    )
+    tool = ImageTool(
+        comfy_url="http://127.0.0.1:9",
+        output_dir=str(tmp_path / "out"),
+        backend="sdcpp",
+        config=config,
+    )
+    tool.is_cancelled = lambda: held["stop"]
+    restored.clear()
+    result = asyncio.run(tool.run(prompt="a red fox"))
+    assert result.ok is False
+    assert "stopped" in result.output.lower()
+    assert [item[0] for item in events] == ["stop", "ensure"]
+    assert restored == ["restore"]
+
+
+def test_startup_recovers_a_paused_llama_server(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """run_ui must actually call recover_paused_server, not just mention it."""
+    import threading
+    from types import SimpleNamespace
+
+    from PySide6.QtWidgets import QApplication, QWidget
+
+    from arelis.ui import launch as launch_mod
+
+    monkeypatch.setenv("ARELIS_ALLOW_OFFSCREEN", "1")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path / "arelis-data"))
+
+    class _Lock:
+        def acquire(self) -> bool:
+            return True
+
+        def release(self) -> None:
+            return None
+
+    class _Router:
+        provider = None
+
+        def arm_warmup(self) -> None:
+            return None
+
+        def mark_warmup_done(self) -> None:
+            return None
+
+        async def close(self) -> None:
+            return None
+
+    fake_seat = SimpleNamespace(
+        router=_Router(),
+        store=None,
+        tools={},
+        orchestrator=SimpleNamespace(),
+    )
+
+    class QuietWindow(QWidget):
+        def __init__(self, *_a: object, **_k: object) -> None:
+            super().__init__()
+            self._force_quit = True
+            self.orchestrator = fake_seat.orchestrator
+            self.inbound_runtime = None
+            self.ipc_client = None
+            self.ipc_server = None
+            self._pending_store = SimpleNamespace(list=lambda: [])
+            self._orphan_ingest_stop = None
+            self.sms_ingest = None
+            self.sms_watcher = None
+            self.sms_auto_reply = None
+            self.config = {}
+
+        def setup_tray(self, app: object) -> None:
+            del app
+
+        def queue_pending_confirms(self, parked: object) -> None:
+            del parked
+
+    recovered: list[object] = []
+    done = threading.Event()
+
+    def recover(config: object = None) -> bool:
+        recovered.append(config)
+        done.set()
+        return False
+
+    async def _noop_startup(*_a: object, **_k: object) -> None:
+        return None
+
+    def _wait_exec(_self: object = None) -> int:
+        done.wait(timeout=5.0)
+        return 0
+
+    monkeypatch.setattr("arelis.presence.lock.PresenceLock", lambda path: _Lock())
+    monkeypatch.setattr(
+        "arelis.presence.ipc_token.claim_session_token", lambda *_a, **_k: None
+    )
+    monkeypatch.setattr(
+        "arelis.jobs.schedule.repoint_moved_tasks_on_launch", lambda: None
+    )
+    monkeypatch.setattr(launch_mod, "apply_first_run_glass", lambda cfg, **_k: cfg or {})
+    monkeypatch.setattr("arelis.core.seat.build_seat", lambda *_a, **_k: fake_seat)
+    monkeypatch.setattr(
+        launch_mod, "VoiceService", lambda *_a, **_k: SimpleNamespace(stt=None)
+    )
+    monkeypatch.setattr(
+        launch_mod,
+        "MemoryIndexer",
+        lambda *_a, **_k: SimpleNamespace(join_writes=lambda timeout_s=0: None),
+    )
+    monkeypatch.setattr("arelis.ui.app.ArelisWindow", QuietWindow)
+    monkeypatch.setattr(QApplication, "exec", _wait_exec)
+    monkeypatch.setattr("arelis.i18n.apply_language", lambda *_a, **_k: None)
+    monkeypatch.setattr(launch_mod, "_present_at_startup", lambda window: None)
+    monkeypatch.setattr(
+        "arelis.ui.update_prompt.schedule_update_check", lambda *_a, **_k: None
+    )
+    monkeypatch.setattr(launch_mod, "_start_activation_listener", lambda *_a, **_k: None)
+    monkeypatch.setattr(launch_mod, "_start_sentinel_child", lambda: None)
+    monkeypatch.setattr(
+        "arelis.ui.launch.install_owned_inbound_off_ui", lambda *_a, **_k: None
+    )
+    monkeypatch.setattr("arelis.presence.lock.external_core_available", lambda _c: False)
+    monkeypatch.setattr(
+        launch_mod, "ConfirmPersister", lambda *_a, **_k: SimpleNamespace(start=lambda: None)
+    )
+    monkeypatch.setattr(launch_mod, "run_model_preflight", _noop_startup)
+    monkeypatch.setattr(launch_mod, "run_model_warmup", _noop_startup)
+    monkeypatch.setattr(launch_mod, "run_auto_lessons", _noop_startup)
+    monkeypatch.setattr(launch_mod, "prefix_warmup_for", lambda *_a, **_k: None)
+    monkeypatch.setattr("arelis.tools.gpu_lease.recover_paused_server", recover)
+
+    config = {"llamacpp": {"base_url": "http://127.0.0.1:8090"}}
+    assert launch_mod.run_ui(config, background=True) == 0
+    assert recovered, "run_ui must call recover_paused_server"
+    assert recovered[0] is config

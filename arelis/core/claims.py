@@ -1653,6 +1653,21 @@ def guard_local_calendar_destination(text: str, *, where: str) -> str:
     )
 
 
+_IMAGE_READY_CLAIM = re.compile(r"(?i)\bimage ready:\s+\S+")
+_IMAGE_READY_LIE = (
+    "I have not made a picture this turn. Ask me again if you want one."
+)
+
+
+def guard_false_image_ready(text: str, *, produced: bool) -> str:
+    """Drop an 'Image ready' path claim when no picture tool produced a file."""
+    if produced:
+        return text
+    if not _IMAGE_READY_CLAIM.search(text or ""):
+        return text
+    return _IMAGE_READY_LIE
+
+
 def guard_false_calendar_add(text: str, *, created: bool, failed: bool) -> str:
     """Replace a success claim when every calendar create this turn failed.
 

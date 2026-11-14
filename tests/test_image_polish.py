@@ -17,7 +17,10 @@ def _save_rgb(path: Path, width: int = 240, height: int = 120) -> Path:
     return path
 
 
-def test_status_and_confirm_are_human() -> None:
+def test_status_and_confirm_are_human(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "arelis.tools.sdcpp.download_needs_allow", lambda config=None: False
+    )
     assert tool_errand("image") == "making a picture"
     assert "calling" not in tool_errand("image")
     assert tool_status_line("image").startswith("✦ making a picture")
