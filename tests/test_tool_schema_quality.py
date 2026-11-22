@@ -297,13 +297,13 @@ def test_schema_stays_under_its_token_cap() -> None:
     assert "desktop" in {
         spec["function"]["name"] for spec in tool_specs(registry_for_profile("default_desktop"))
     }
-    assert base["schema_chars"] <= 21_482, base
-    assert base["schema_tokens_approx"] <= 6_500, base
-    assert desk["schema_chars"] <= 22_211, desk
-    assert desk["schema_tokens_approx"] <= 6_721, desk
+    assert base["schema_chars"] <= 21_586, base
+    assert base["schema_tokens_approx"] <= 6_532, base
+    assert desk["schema_chars"] <= 22_315, desk
+    assert desk["schema_tokens_approx"] <= 6_752, desk
     assert desk["schema_tokens_approx"] <= SCHEMA_TOKEN_CAP["default_desktop"], desk
-    assert full["schema_chars"] <= 24_855, full
-    assert full["schema_tokens_approx"] <= 7_521, full
+    assert full["schema_chars"] <= 24_959, full
+    assert full["schema_tokens_approx"] <= 7_552, full
 
     desk_names = {
         spec["function"]["name"] for spec in tool_specs(registry_for_profile("default_desktop"))
@@ -353,4 +353,4 @@ def test_profile_loaders_isolate_credentials_and_credentialed_windows_is_worst_s
     assert cred["schema_tokens_approx"] <= SCHEMA_TOKEN_CAP["worst"], cred
     assert cred["schema_tokens_approx"] > SCHEMA_TOKEN_CAP["default_desktop"], cred
     assert desk["schema_tokens_approx"] <= SCHEMA_TOKEN_CAP["default_desktop"], desk
-    assert desk["schema_tokens_approx"] <= 6_721, desk
+    assert desk["schema_tokens_approx"] <= 6_752, desk

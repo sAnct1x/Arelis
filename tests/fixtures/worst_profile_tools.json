@@ -846,6 +846,7 @@
             "enum": [
               "deploy",
               "stop",
+              "recall",
               "retask",
               "mission"
             ]
@@ -870,6 +871,17 @@
           },
           "question": {
             "type": "string"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "multi",
+              "arxiv",
+              "wikipedia",
+              "horizons",
+              "url",
+              "security_audit"
+            ]
           }
         },
         "required": [
