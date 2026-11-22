@@ -78,10 +78,12 @@ def _foreground_root(uia: object) -> object | None:
             if root is not None:
                 return root
     except Exception:
+        # HWND lookup or ElementFromHandle failed; fall back to focused/root element.
         pass
     try:
         return uia.GetFocusedElement() or uia.GetRootElement()  # type: ignore[attr-defined]
     except Exception:
+        # COM UIA root unavailable.
         return None
 
 

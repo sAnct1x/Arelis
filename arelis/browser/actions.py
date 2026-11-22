@@ -2025,6 +2025,7 @@ class PlaywrightDriver:
             if await main_loc.count() > 0:
                 return main_loc
         except Exception:
+            # Main frame may be mid-navigation; fall through to scan child frames.
             pass
         for frame in frames:
             if frame is getattr(self._page, "main_frame", None):
@@ -2034,6 +2035,7 @@ class PlaywrightDriver:
                 if await floc.count() > 0:
                     return floc
             except Exception:
+                # Cross-origin or detached iframe cannot be queried; skip to next frame.
                 continue
         return main_loc
 
@@ -2044,6 +2046,7 @@ class PlaywrightDriver:
         try:
             after_pages = list(self._context.pages)
         except Exception:
+            # Context detached or closed; no new page to adopt.
             return False
         new_pages = [p for p in after_pages if p not in before_pages]
         if not new_pages:
@@ -2054,11 +2057,13 @@ class PlaywrightDriver:
             if not url or url == "about:blank":
                 await cooperative_wait(0.25)
         except Exception:
+            # Popup URL property may not be ready yet; continue and adopt the page.
             pass
         self._page = chosen
         try:
             await chosen.bring_to_front()
         except Exception:
+            # Test fakes or headless contexts may not support bring_to_front.
             pass
         return True
 
