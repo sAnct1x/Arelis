@@ -649,7 +649,10 @@ def dispatch_event(window: Any, event: Event) -> None:
         if str(tool or "") in {"browser", "desktop"}:
             action = str(args.get("action") or "")
             window._drive_session = True
-            window.conversation.set_drive(True, format_drive_status(action, args))
+            brand = "Arelis Desk" if str(tool or "") == "desktop" else "Arelis Chrome"
+            window.conversation.set_drive(
+                True, format_drive_status(action, args), brand=brand
+            )
     elif t == EventType.TOOL_RESULT:
         data = p.get("data") or {}
         intro = str(data.get("intro") or "").strip()

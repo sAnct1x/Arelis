@@ -469,9 +469,11 @@ class ConversationStage(GlassFrame):
             self.attach_bar.add_many(dicts)
             self._place_parked_orbit()
 
-    def set_drive(self, driving: bool, status: str = "") -> None:
-        """Show the glass Drive strip while she is driving her Chrome."""
+    def set_drive(self, driving: bool, status: str = "", *, brand: str = "") -> None:
+        """Show the glass Drive strip while she is driving her Chrome or the desk."""
         self._driving = bool(driving)
+        if brand:
+            self.drive.set_brand(brand)
         if status:
             self.drive.set_status(status)
         self._sync_drive_face()

@@ -33,9 +33,9 @@ class DriveStrip(GlassFrame):
         row.setContentsMargins(12, 4, 8, 4)
         row.setSpacing(8)
 
-        brand = QLabel("Arelis Chrome")
-        brand.setObjectName("DriveBrand")
-        row.addWidget(brand)
+        self.brand = QLabel("Arelis Chrome")
+        self.brand.setObjectName("DriveBrand")
+        row.addWidget(self.brand)
 
         self.status = QLabel("")
         self.status.setObjectName("DriveStatus")
@@ -71,6 +71,10 @@ class DriveStrip(GlassFrame):
 
     def is_paused(self) -> bool:
         return self._paused
+
+    def set_brand(self, label: str) -> None:
+        text = (label or "").strip() or "Arelis Chrome"
+        self.brand.setText(text)
 
     def set_status(self, text: str) -> None:
         self._line = (text or "").strip()

@@ -2332,13 +2332,13 @@ class AgentLoop:
         if self.is_cancelled():
             raise _StoppedError
 
-    async def _await_your_turn(self, kind: str) -> None:
+    async def _await_your_turn(self, kind: str, *, tool_name: str = "browser") -> None:
         """Hold until the wall is gone (captcha/login) or they hit Go."""
         from arelis.browser.hold import is_paused, set_paused
 
-        tool = self.tools.get("browser")
+        tool = self.tools.get("browser") if tool_name == "browser" else None
         session = getattr(tool, "session", None)
-        auto = kind in {"captcha", "login"}
+        auto = tool_name == "browser" and kind in {"captcha", "login"}
         while not self.is_cancelled():
             if not is_paused() and not self.is_paused():
                 return

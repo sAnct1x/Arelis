@@ -70,8 +70,17 @@ _MESSAGES = {
     "login": (
         "Your turn: sign in. I do not type passwords. Hit Go when you are in."
     ),
+    "password": (
+        "Your turn: I do not type passwords. Hit Go when you are in."
+    ),
     "pay": (
         "Your turn: you click Book / Pay / Order. I stop on this screen."
+    ),
+    "delete": (
+        "Your turn: I do not delete, format, or uninstall without you."
+    ),
+    "uac": (
+        "Your turn: I never click Yes on User Account Control."
     ),
     "stuck": (
         "Your turn: I cannot find the next control. The page stays."
@@ -91,7 +100,10 @@ def your_turn_status(kind: str) -> str:
     labels = {
         "captcha": "your turn: captcha",
         "login": "your turn: sign in",
+        "password": "your turn: sign in",
         "pay": "your turn: you click Pay",
+        "delete": "your turn: you confirm delete",
+        "uac": "your turn: UAC prompt",
         "stuck": "your turn: I am stuck",
         "hands": "your turn: you have the mouse",
     }

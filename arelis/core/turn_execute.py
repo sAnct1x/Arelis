@@ -726,7 +726,7 @@ async def execute_call(
             kept_chars=trunc.kept_chars,
         )
         wall_kind = ""
-        if name == "browser" and data_dict:
+        if name in {"browser", "desktop"} and data_dict:
             wall_code = str(data_dict.get("code") or "")
             wall_kind = str(data_dict.get("wall") or "")
             if wall_code in {"YOUR_TURN", "SECRET_FIELD"}:
@@ -735,6 +735,7 @@ async def execute_call(
                         EventType.TURN_PAUSE,
                         {
                             "reason": "your_turn",
+                            "tool": name,
                             "kind": str(
                                 wall_kind
                                 or ("login" if wall_code == "SECRET_FIELD" else "")
@@ -742,11 +743,14 @@ async def execute_call(
                         },
                     )
                 )
-                if wall_kind == "pay":
+                if name == "browser" and wall_kind == "pay":
                     receipt = await _pay_checkout_receipt(loop, ctx, data_dict)
                     await loop._finish(receipt, sources, streamed="")
                     return True
-                await loop._await_your_turn(wall_kind)
+                if name == "desktop" and wall_kind in {"pay", "delete", "uac"}:
+                    await loop._finish(str(result.output or "").strip(), sources, streamed="")
+                    return True
+                await loop._await_your_turn(wall_kind, tool_name=name)
                 wall_kind = ""
         if name == "browser" and result.ok:
             b_act = str(args.get("action") or "").strip().lower()

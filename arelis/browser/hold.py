@@ -132,21 +132,55 @@ def format_drive_done(
     """Past-tense Drive line after a step. Empty means keep the about-to copy."""
     args = args or {}
     data = data or {}
-    act = (action or "").strip().lower()
+    act = (action or "").strip().lower().replace("-", "_")
     label = str(
-        data.get("label") or args.get("text") or args.get("label") or ""
+        data.get("label")
+        or data.get("title")
+        or args.get("text")
+        or args.get("label")
+        or args.get("target")
+        or ""
     ).strip()
     if act == "click":
         return f"clicked {label[:40]}" if label else "clicked"
+    if act in {"dblclick", "double_click", "doubleclick"}:
+        return f"double-clicked {label[:40]}" if label else "double-clicked"
+    if act in {"right_click", "rightclick"}:
+        return f"right-clicked {label[:40]}" if label else "right-clicked"
+    if act == "hover":
+        return f"hovered {label[:40]}" if label else "hovered"
+    if act == "drag":
+        return f"dragged {label[:40]}" if label else "dragged"
     if act == "search":
         q = str(args.get("query") or args.get("text") or data.get("query") or "").strip()
         return f"searched {q[:40]}" if q else "searched"
     if act == "open":
         return "opened"
+    if act == "focus":
+        return f"focused {label[:40]}" if label else "focused"
     if act == "navigate":
         return "opened the page"
     if act == "type":
         return "typed"
+    if act == "press":
+        key = str(args.get("key") or "").strip()
+        return f"pressed {key[:24]}" if key else "pressed"
+    if act == "hotkey":
+        combo = str(args.get("keys") or args.get("key") or "").strip()
+        return f"pressed {combo[:24]}" if combo else "pressed"
+    if act == "select":
+        val = str(args.get("text") or args.get("value") or "").strip()
+        return f"selected {val[:32]}" if val else "selected"
+    if act == "scroll":
+        return "scrolled"
+    if act == "screenshot":
+        return "captured"
+    if act == "download":
+        return "downloaded"
+    if act == "upload":
+        return "uploaded"
+    if act == "pdf":
+        return "saved PDF"
     if act == "maps":
         dest = str(data.get("destination") or args.get("destination") or "").strip()
         return f"opened maps to {dest[:40]}" if dest else "opened maps"

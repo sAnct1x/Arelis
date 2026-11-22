@@ -281,6 +281,8 @@ _PRESS_KEYS = {
     "tab": "Tab",
     "space": "Space",
     "backspace": "Backspace",
+    "delete": "Delete",
+    "del": "Delete",
     "arrowup": "ArrowUp",
     "up": "ArrowUp",
     "arrowdown": "ArrowDown",
@@ -293,6 +295,28 @@ _PRESS_KEYS = {
     "end": "End",
     "pageup": "PageUp",
     "pagedown": "PageDown",
+    "f1": "F1",
+    "f2": "F2",
+    "f3": "F3",
+    "f4": "F4",
+    "f5": "F5",
+    "f6": "F6",
+    "f7": "F7",
+    "f8": "F8",
+    "f9": "F9",
+    "f10": "F10",
+    "f11": "F11",
+    "f12": "F12",
+}
+
+_PRESS_MODIFIERS = {
+    "ctrl": "Control",
+    "control": "Control",
+    "alt": "Alt",
+    "shift": "Shift",
+    "meta": "Meta",
+    "cmd": "Meta",
+    "win": "Meta",
 }
 
 
@@ -331,10 +355,29 @@ def normalize_press_key(key: str) -> str | None:
     raw = (key or "").strip()
     if not raw:
         return None
+    if "+" in raw:
+        parts = [p.strip() for p in raw.split("+") if p.strip()]
+        if len(parts) < 2:
+            return None
+        mods: list[str] = []
+        for mod in parts[:-1]:
+            mapped_mod = _PRESS_MODIFIERS.get(mod.lower())
+            if not mapped_mod:
+                return None
+            mods.append(mapped_mod)
+        tail = parts[-1]
+        mapped_tail = _PRESS_KEYS.get(tail.lower())
+        if mapped_tail:
+            return "+".join([*mods, mapped_tail])
+        if len(tail) == 1 and (tail.isalnum() or tail in "-=/.,;[]\\`'"):
+            return "+".join([*mods, tail.lower()])
+        return None
     mapped = _PRESS_KEYS.get(raw.lower())
     if mapped:
         return mapped
     if raw in set(_PRESS_KEYS.values()):
+        return raw
+    if len(raw) == 1 and (raw.isalnum() or raw in "-=/.,;[]\\`'"):
         return raw
     return None
 
@@ -1092,7 +1135,9 @@ class FakeDriver:
         info = self._elements.get(ref)
         if info is None:
             return ActionResult(ok=False, output=f"Unknown ref {ref!r}.")
-        if info.tag != "select":
+        from arelis.browser.snapshot import is_select
+
+        if not is_select(info):
             return ActionResult(ok=False, output=f"[{ref}] is not a dropdown.")
         info.text = value
         self.selected.append((ref, value))
@@ -1968,11 +2013,67 @@ class PlaywrightDriver:
             self._page = None
             return _playwright_fail(exc)
 
+    async def _resolve_locator(self, ref: str) -> Any:
+        """Return a Playwright locator for ``[data-arelis-ref="ref"]`` across same-origin frames."""
+        assert self._page is not None
+        selector = f'[data-arelis-ref="{ref}"]'
+        main_loc = self._page.locator(selector)
+        frames = list(getattr(self._page, "frames", ()) or ())
+        if len(frames) <= 1:
+            return main_loc
+        try:
+            if await main_loc.count() > 0:
+                return main_loc
+        except Exception:
+            # Main frame may be mid-navigation; fall through to scan child frames.
+            pass
+        for frame in frames:
+            if frame is getattr(self._page, "main_frame", None):
+                continue
+            try:
+                floc = frame.locator(selector)
+                if await floc.count() > 0:
+                    return floc
+            except Exception:
+                # Cross-origin or detached iframe cannot be queried; skip to next frame.
+                continue
+        return main_loc
+
+    async def _adopt_new_page_if_opened(self, before_pages: list[Any]) -> bool:
+        """If a click/key opened a new tab or popup in our context, switch to it."""
+        if self._context is None:
+            return False
+        try:
+            after_pages = list(self._context.pages)
+        except Exception:
+            # Context detached or closed; no new page to adopt.
+            return False
+        new_pages = [p for p in after_pages if p not in before_pages]
+        if not new_pages:
+            return False
+        chosen = new_pages[-1]
+        try:
+            url = str(chosen.url or "")
+            if not url or url == "about:blank":
+                await cooperative_wait(0.25)
+        except Exception:
+            # Popup URL property may not be ready yet; continue and adopt the page.
+            pass
+        self._page = chosen
+        try:
+            await chosen.bring_to_front()
+        except Exception:
+            # Test fakes or headless contexts may not support bring_to_front.
+            pass
+        return True
+
     async def _click_once(self, ref: str, info: ElementInfo) -> ActionResult:
         assert self._page is not None
+        before = list(self._context.pages) if self._context is not None else []
         try:
-            loc = self._page.locator(f'[data-arelis-ref="{ref}"]')
+            loc = await self._resolve_locator(ref)
             await loc.first.click(timeout=CLICK_TIMEOUT_MS)
+            await self._adopt_new_page_if_opened(before)
             return ActionResult(
                 ok=True,
                 output=f"Clicked [{ref}] {info.text or info.tag}",
@@ -2135,7 +2236,7 @@ class PlaywrightDriver:
                     await self._page.mouse.up()
             else:
                 await _glow_ref(self._page, ref)
-                loc = self._page.locator(f'[data-arelis-ref="{ref}"]')
+                loc = await self._resolve_locator(ref)
                 if verb == "hover":
                     await loc.first.hover(timeout=CLICK_TIMEOUT_MS)
                 elif verb == "dblclick":
@@ -2143,7 +2244,7 @@ class PlaywrightDriver:
                 elif verb == "right_click":
                     await loc.first.click(timeout=CLICK_TIMEOUT_MS, button="right")
                 elif verb == "drag":
-                    dest = self._page.locator(f'[data-arelis-ref="{to}"]')
+                    dest = await self._resolve_locator(to)
                     await loc.first.drag_to(dest.first, timeout=CLICK_TIMEOUT_MS)
             label = (info.text if info is not None else "") or ref or "pixels"
             return ActionResult(
@@ -2189,8 +2290,15 @@ class PlaywrightDriver:
                 data={"code": "SECRET_FIELD", "ref": ref},
             )
         try:
-            loc = self._page.locator(f'[data-arelis-ref="{ref}"]')
-            await loc.first.fill(text, timeout=CLICK_TIMEOUT_MS)
+            loc = await self._resolve_locator(ref)
+            try:
+                await loc.first.fill(text, timeout=CLICK_TIMEOUT_MS)
+            except Exception as fill_exc:
+                if _is_cdp_dead(fill_exc):
+                    raise
+                await loc.first.click(timeout=CLICK_TIMEOUT_MS)
+                await self._page.keyboard.press("Control+a")
+                await self._page.keyboard.insert_text(text)
             return ActionResult(
                 ok=True,
                 output=f"Typed into [{ref}]",
@@ -2359,13 +2467,8 @@ class PlaywrightDriver:
                         ok=False,
                         output=f"Unknown ref {ref!r}. Call snapshot first.",
                     )
-                await self._page.evaluate(
-                    """(ref) => {
-                      const el = document.querySelector('[data-arelis-ref="' + ref + '"]');
-                      if (el) el.scrollIntoView({block: 'center', inline: 'nearest'});
-                    }""",
-                    ref,
-                )
+                loc = await self._resolve_locator(ref)
+                await loc.first.scroll_into_view_if_needed(timeout=CLICK_TIMEOUT_MS)
                 return ActionResult(ok=True, output=f"Scrolled [{ref}] into view.")
             way = (direction or "down").strip().lower() or "down"
             px = max(40, min(int(amount), 4000))
@@ -2377,9 +2480,47 @@ class PlaywrightDriver:
             elif way == "right":
                 dx, dy = px, 0
             elif way == "page":
-                await self._page.evaluate("() => window.scrollBy(0, window.innerHeight)")
+                dy = int(
+                    await self._page.evaluate("() => window.innerHeight || 600") or 600
+                )
+            await self._page.evaluate(
+                """([dx, dy]) => {
+                  const bX = window.scrollX, bY = window.scrollY;
+                  window.scrollBy(dx, dy);
+                  if (window.scrollX !== bX || window.scrollY !== bY) return;
+                  const canScroll = (el) => {
+                    if (!el || el === document.body || el === document.documentElement) {
+                      return false;
+                    }
+                    const st = window.getComputedStyle(el);
+                    const oy = st.overflowY;
+                    const ox = st.overflowX;
+                    if (dy !== 0 && (oy === 'auto' || oy === 'scroll' || oy === 'overlay')
+                        && el.scrollHeight > el.clientHeight + 4) return true;
+                    if (dx !== 0 && (ox === 'auto' || ox === 'scroll' || ox === 'overlay')
+                        && el.scrollWidth > el.clientWidth + 4) return true;
+                    return false;
+                  };
+                  let cur = document.activeElement;
+                  while (cur && cur !== document.body) {
+                    if (canScroll(cur)) { cur.scrollBy(dx, dy); return; }
+                    cur = cur.parentElement;
+                  }
+                  let best = null;
+                  let bestArea = 0;
+                  const sel = 'main, [role="main"], div, section, ul, article';
+                  for (const el of document.querySelectorAll(sel)) {
+                    if (!canScroll(el)) continue;
+                    const r = el.getBoundingClientRect();
+                    const area = r.width * r.height;
+                    if (area > bestArea) { bestArea = area; best = el; }
+                  }
+                  if (best) best.scrollBy(dx, dy);
+                }""",
+                [dx, dy],
+            )
+            if way == "page":
                 return ActionResult(ok=True, output="Scrolled one page down.")
-            await self._page.evaluate("([x, y]) => window.scrollBy(x, y)", [dx, dy])
             return ActionResult(ok=True, output=f"Scrolled {way} {px}px.")
         except Exception as exc:
             self._page = None
@@ -2396,8 +2537,11 @@ class PlaywrightDriver:
                 ok=False,
                 output=f"Unsupported key {key!r}. Use Enter, Escape, Tab, arrows.",
             )
+        before = list(self._context.pages) if self._context is not None else []
         try:
             await self._page.keyboard.press(mapped)
+            if mapped == "Enter":
+                await self._adopt_new_page_if_opened(before)
             return ActionResult(ok=True, output=f"Pressed {mapped}.")
         except Exception as exc:
             self._page = None
@@ -2414,20 +2558,38 @@ class PlaywrightDriver:
                 ok=False,
                 output=f"Unknown ref {ref!r}. Call snapshot first.",
             )
-        if info.tag != "select":
+        from arelis.browser.snapshot import is_select
+
+        if not is_select(info):
             return ActionResult(ok=False, output=f"[{ref}] is not a dropdown.")
-        try:
-            loc = self._page.locator(f'[data-arelis-ref="{ref}"]')
-            await loc.first.select_option(label=value, timeout=CLICK_TIMEOUT_MS)
-            return ActionResult(ok=True, output=f"Selected {value!r} on [{ref}].")
-        except Exception:
+        if info.tag == "select":
             try:
-                loc = self._page.locator(f'[data-arelis-ref="{ref}"]')
-                await loc.first.select_option(value=value, timeout=CLICK_TIMEOUT_MS)
+                loc = await self._resolve_locator(ref)
+                await loc.first.select_option(label=value, timeout=CLICK_TIMEOUT_MS)
                 return ActionResult(ok=True, output=f"Selected {value!r} on [{ref}].")
-            except Exception as exc:
-                self._page = None
-                return _playwright_fail(exc)
+            except Exception:
+                try:
+                    loc = await self._resolve_locator(ref)
+                    await loc.first.select_option(value=value, timeout=CLICK_TIMEOUT_MS)
+                    return ActionResult(ok=True, output=f"Selected {value!r} on [{ref}].")
+                except Exception as exc:
+                    self._page = None
+                    return _playwright_fail(exc)
+        # Custom ARIA combobox / listbox: click to open, then pick the matching option.
+        try:
+            loc = await self._resolve_locator(ref)
+            await loc.first.click(timeout=CLICK_TIMEOUT_MS)
+            await cooperative_wait(0.15)
+            opt = self._page.get_by_role("option", name=value)
+            if await opt.count() > 0:
+                await opt.first.click(timeout=CLICK_TIMEOUT_MS)
+            else:
+                await self._page.get_by_text(value, exact=False).first.click(
+                    timeout=CLICK_TIMEOUT_MS
+                )
+            return ActionResult(ok=True, output=f"Selected {value!r} on [{ref}].")
+        except Exception as exc:
+            return self._fail_keep_or_drop(exc)
 
     async def wait(
         self,
@@ -2565,7 +2727,7 @@ class PlaywrightDriver:
                     )
                 await _glow_ref(self._page, ref)
                 async with self._page.expect_download(timeout=15_000) as pending:
-                    loc = self._page.locator(f'[data-arelis-ref="{ref}"]')
+                    loc = await self._resolve_locator(ref)
                     await loc.first.click(timeout=CLICK_TIMEOUT_MS)
                 item = await pending.value
             else:
@@ -2606,7 +2768,7 @@ class PlaywrightDriver:
             )
         try:
             await _glow_ref(self._page, ref)
-            loc = self._page.locator(f'[data-arelis-ref="{ref}"]')
+            loc = await self._resolve_locator(ref)
             await loc.first.set_input_files(path, timeout=CLICK_TIMEOUT_MS)
             return ActionResult(
                 ok=True,

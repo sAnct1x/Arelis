@@ -72,6 +72,8 @@ _RAW_PATH = re.compile(r"^[A-Za-z]:[\\/]|^\\\\|[/\\].+\.(?:exe|msc|bat|cmd|ps1)$
 _DELETE_LABEL = re.compile(
     r"(?i)^\s*("
     r"delete( permanently)?|"
+    r"shift\s*[+-]\s*(?:delete|del)|"
+    r"alt\s*[+-]\s*f4|"
     r"empty (recycle bin|trash)|"
     r"uninstall|"
     r"format( disk)?|"

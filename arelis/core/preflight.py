@@ -128,8 +128,11 @@ _BROWSER = re.compile(
 _OPEN_ASK_MORE_WORK = re.compile(
     r"(?i)\b("
     r"add\s+\S.+\s+to\s+(?:(?:the|my)\s+)?(?:cart|bag)|"
-    r"and\s+(?:then\s+)?(?:do\s+(?:a|an|us|the)\s+)?(?:add|search|click|buy|play|find|type|book|order)|"
-    r"then\s+(?:add|search|click|buy|play|find|type|book|order)|"
+    r"and\s+(?:then\s+)?(?:do\s+(?:a|an|us|the)\s+)?"
+    r"(?:add|search|click|buy|play|find|type|fill|select|pick|scroll|"
+    r"download|upload|hover|book|order)|"
+    r"then\s+(?:add|search|click|buy|play|find|type|fill|select|pick|"
+    r"scroll|download|upload|hover|book|order)|"
     r"do\s+(?:a|an|us|the)\s+search"
     r")\b"
 )
@@ -362,8 +365,10 @@ def looks_like_browser_open_ask(text: str) -> bool:
 
 
 _DESKTOP_APPS = (
-    r"notepad|calculator|calc|explorer|paint|mspaint|"
-    r"snipping\s+tool|spotify|discord|steam"
+    r"notepad|calculator|calc|explorer|file\s+explorer|paint|mspaint|"
+    r"snipping\s+tool|spotify|discord|steam|vs\s*code|vscode|"
+    r"visual\s+studio\s+code|word|excel|powerpoint|onenote|outlook|"
+    r"acrobat|kindle|obs|vlc"
 )
 _DESKTOP = re.compile(
     r"(?i)\b("
