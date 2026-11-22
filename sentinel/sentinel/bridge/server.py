@@ -374,6 +374,19 @@ class SentinelBridgeServer:
             ok = self.hive.retire_unit(uid)
             return format_command_response(ok, {"unit_id": uid, "retired": ok})
 
+        if op == "recall_unit":
+            uid = str(cmd_data.get("unit_id") or "")
+            res = self.hive.recall_unit(uid)
+            return format_command_response(bool(res.get("ok")), res, error=res.get("error"))
+
+        if op == "retask_unit":
+            uid = str(cmd_data.get("unit_id") or "")
+            payload = dict(cmd_data.get("payload") or {})
+            res = await self.hive.retask_unit(uid, payload)
+            return format_command_response(
+                bool(res.get("ok")), {"result": res}, error=res.get("error")
+            )
+
         if op == "scale_caste":
             caste = str(cmd_data.get("caste") or "harvester")
             target_count = int(cmd_data.get("target_count", 4))
@@ -564,68 +577,83 @@ class SentinelBridgeServer:
             if not request_line or len(request_line) > _MAX_HEADER_LINE:
                 writer.close()
                 return
-            parts = request_line.decode("utf-8", errors="replace").strip().split(" ")
-            if len(parts) < 2:
-                writer.close()
-                return
-            method, raw_target = parts[0].upper(), parts[1]
-            parsed_url = urlparse(raw_target)
-            path = parsed_url.path
-
-            headers: dict[str, str] = {}
-            for _ in range(_MAX_HEADER_COUNT):
-                hline = await asyncio.wait_for(reader.readline(), timeout=10.0)
-                if not hline or hline in {b"\r\n", b"\n"}:
-                    break
-                if len(hline) > _MAX_HEADER_LINE:
-                    self._write_json(400, {"ok": False, "error": "Header line too large"}, writer)
+            for _req_n in range(500):
+                if _req_n > 0:
+                    request_line = await asyncio.wait_for(reader.readline(), timeout=15.0)
+                    if not request_line:
+                        return
+                parts = request_line.decode("utf-8", errors="replace").strip().split(" ")
+                if len(parts) < 2:
+                    writer.close()
                     return
-                decoded = hline.decode("utf-8", errors="replace").strip()
-                if ":" in decoded:
-                    k, v = decoded.split(":", 1)
-                    headers[k.strip().lower()] = v.strip()
+                method, raw_target = parts[0].upper(), parts[1]
+                parsed_url = urlparse(raw_target)
+                path = parsed_url.path
 
-            # Reject non-loopback Host and Origin headers
-            ok_origin, origin_reason = _is_loopback_origin_and_host(headers)
-            if not ok_origin:
-                self.hive.telemetry.record(
-                    "CRITICAL",
-                    unit_id="SNT-WRD-001",
-                    caste="warden",
-                    phase="CSWSH / DNS REBIND BLOCKED",
-                    message=origin_reason,
-                    details={"path": path, "host": headers.get("host"), "origin": headers.get("origin")},
+                headers: dict[str, str] = {}
+                for _ in range(_MAX_HEADER_COUNT):
+                    hline = await asyncio.wait_for(reader.readline(), timeout=10.0)
+                    if not hline or hline in {b"\r\n", b"\n"}:
+                        break
+                    if len(hline) > _MAX_HEADER_LINE:
+                        self._write_json(400, {"ok": False, "error": "Header line too large"}, writer)
+                        return
+                    decoded = hline.decode("utf-8", errors="replace").strip()
+                    if ":" in decoded:
+                        k, v = decoded.split(":", 1)
+                        headers[k.strip().lower()] = v.strip()
+
+                # Reject non-loopback Host and Origin headers
+                ok_origin, origin_reason = _is_loopback_origin_and_host(headers)
+                if not ok_origin:
+                    self.hive.telemetry.record(
+                        "CRITICAL",
+                        unit_id="SNT-WRD-001",
+                        caste="warden",
+                        phase="CSWSH / DNS REBIND BLOCKED",
+                        message=origin_reason,
+                        details={"path": path, "host": headers.get("host"), "origin": headers.get("origin")},
+                    )
+                    self._write_json(403, {"ok": False, "error": origin_reason}, writer)
+                    return
+
+                # WebSocket upgrade: token arrives as the first hello, not a header.
+                if headers.get("upgrade", "").lower() == "websocket" and path == "/ws/telemetry":
+                    await self._handle_websocket(reader, writer, headers)
+                    return
+
+                if not _is_public_static(method, path) and not self._session_ok(
+                    token_from_headers(headers)
+                ):
+                    self._reject_unauthorized(writer)
+                    return
+
+                content_len = int(headers.get("content-length", "0") or "0")
+                if content_len < 0 or content_len > _MAX_HTTP_BODY_BYTES:
+                    self.hive.telemetry.record(
+                        "THREAT",
+                        unit_id="SNT-WRD-001",
+                        caste="warden",
+                        phase="HTTP PAYLOAD FLOOD BLOCKED",
+                        message=f"Rejected oversized HTTP body ({content_len} bytes > {_MAX_HTTP_BODY_BYTES} limit) on {path}",
+                        details={"content_length": content_len, "path": path},
+                    )
+                    self._write_json(413, {"ok": False, "error": "Payload Too Large"}, writer)
+                    return
+
+                body_bytes = await reader.readexactly(content_len) if content_len > 0 else b""
+                want_keep_alive = (
+                    method == "GET"
+                    and path == "/api/snapshot"
+                    and "keep-alive" in headers.get("connection", "").lower()
                 )
-                self._write_json(403, {"ok": False, "error": origin_reason}, writer)
+                if want_keep_alive:
+                    self._write_json(200, self.hive.world_snapshot(), writer, keep_alive=True)
+                    await writer.drain()
+                    continue
+
+                await self._route_http(method, path, parsed_url.query, headers, body_bytes, writer)
                 return
-
-            # WebSocket upgrade: token arrives as the first hello, not a header.
-            if headers.get("upgrade", "").lower() == "websocket" and path == "/ws/telemetry":
-                await self._handle_websocket(reader, writer, headers)
-                return
-
-            if not _is_public_static(method, path) and not self._session_ok(
-                token_from_headers(headers)
-            ):
-                self._reject_unauthorized(writer)
-                return
-
-            content_len = int(headers.get("content-length", "0") or "0")
-            if content_len < 0 or content_len > _MAX_HTTP_BODY_BYTES:
-                self.hive.telemetry.record(
-                    "THREAT",
-                    unit_id="SNT-WRD-001",
-                    caste="warden",
-                    phase="HTTP PAYLOAD FLOOD BLOCKED",
-                    message=f"Rejected oversized HTTP body ({content_len} bytes > {_MAX_HTTP_BODY_BYTES} limit) on {path}",
-                    details={"content_length": content_len, "path": path},
-                )
-                self._write_json(413, {"ok": False, "error": "Payload Too Large"}, writer)
-                return
-
-            body_bytes = await reader.readexactly(content_len) if content_len > 0 else b""
-
-            await self._route_http(method, path, parsed_url.query, headers, body_bytes, writer)
         except (TimeoutError, OSError, RuntimeError, ValueError):
             log.debug("Connection closed or malformed HTTP request")
         finally:
@@ -787,6 +815,13 @@ class SentinelBridgeServer:
                 self._write_json(400, {"ok": False, "error": str(exc)}, writer)
             return
 
+        if method == "POST" and path == "/api/overseer/recall":
+            payload = json.loads(body_bytes.decode("utf-8") or "{}") if body_bytes else {}
+            uid = str(payload.get("unit_id") or "").strip()
+            res = self.hive.recall_unit(uid)
+            self._write_json(200 if res.get("ok") else 400, res, writer)
+            return
+
         if method == "POST" and path == "/api/overseer/upgrade":
             payload = json.loads(body_bytes.decode("utf-8") or "{}") if body_bytes else {}
             tier = str(payload.get("tier") or "mk1")
@@ -934,7 +969,14 @@ class SentinelBridgeServer:
         ).encode("ascii")
         writer.write(hdr + content)
 
-    def _write_json(self, status: int, obj: dict[str, Any], writer: asyncio.StreamWriter) -> None:
+    def _write_json(
+        self,
+        status: int,
+        obj: dict[str, Any],
+        writer: asyncio.StreamWriter,
+        *,
+        keep_alive: bool = False,
+    ) -> None:
         phrases = {
             200: "OK",
             400: "Bad Request",
@@ -946,11 +988,12 @@ class SentinelBridgeServer:
         }
         phrase = phrases.get(status, "OK")
         raw = json.dumps(obj, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        conn = "keep-alive" if keep_alive else "close"
         hdr = (
             f"HTTP/1.1 {status} {phrase}\r\n"
             f"Content-Type: application/json; charset=utf-8\r\n"
             f"Content-Length: {len(raw)}\r\n"
             f"Cache-Control: no-store\r\n"
-            f"Connection: close\r\n\r\n"
+            f"Connection: {conn}\r\n\r\n"
         ).encode("ascii")
         writer.write(hdr + raw)

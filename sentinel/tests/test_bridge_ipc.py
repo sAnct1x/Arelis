@@ -166,3 +166,65 @@ async def test_overseer_qol_endpoints_and_preference_persistence(tmp_path) -> No
         await server.stop()
 
 
+@pytest.mark.asyncio
+async def test_per_unit_recall_and_retask_are_fail_closed() -> None:
+    """recall_unit and retask_unit act only on the named unit and refuse missing ids."""
+    from sentinel.core.fsm import SentinelState
+
+    hive = SwarmHive()
+    spawned = hive.spawn_units("interceptor", 1)
+    assert len(spawned) == 1
+    uid = spawned[0].unit_id
+    before_n = len(hive.units)
+    spawned[0].transition(SentinelState.VECTORING, task="busy")
+
+    server = SentinelBridgeServer(hive, host="127.0.0.1", preferred_port=18795)
+    port = await server.start()
+    try:
+        async with httpx.AsyncClient(
+            base_url=f"http://127.0.0.1:{port}",
+            headers={"X-Sentinel-Token": server.session_token},
+        ) as http:
+            r_ok = await http.post("/api/overseer/recall", json={"unit_id": uid})
+            assert r_ok.status_code == 200
+            assert r_ok.json()["ok"] is True
+            assert hive.units[uid].state == SentinelState.PATROLLING
+
+            r_miss = await http.post("/api/overseer/recall", json={"unit_id": "SNT-NONE-999"})
+            assert r_miss.status_code == 400
+            assert r_miss.json()["ok"] is False
+
+            r_retask = await http.post(
+                "/api/command",
+                json={
+                    "op": "retask_unit",
+                    "unit_id": uid,
+                    "payload": {"capability": "ast:verify_ast_clean", "code": "x = 1 + 2"},
+                },
+            )
+            assert r_retask.status_code == 200
+            assert r_retask.json()["ok"] is True
+            assert len(hive.units) == before_n  # no extra unit spawned
+
+            r_retask_miss = await http.post(
+                "/api/command",
+                json={
+                    "op": "retask_unit",
+                    "unit_id": "SNT-NONE-999",
+                    "payload": {"capability": "ast:verify_ast_clean", "code": "x = 1"},
+                },
+            )
+            assert r_retask_miss.status_code == 400
+            assert r_retask_miss.json()["ok"] is False
+            assert len(hive.units) == before_n  # fail-closed: did not spawn a fallback unit
+
+            # Keep-alive GET /api/snapshot returns Connection: keep-alive across consecutive polls
+            for _ in range(3):
+                r_snap = await http.get("/api/snapshot", headers={"Connection": "keep-alive"})
+                assert r_snap.status_code == 200
+                assert r_snap.headers.get("connection", "").lower() == "keep-alive"
+                assert "units" in r_snap.json()
+    finally:
+        await server.stop()
+
+

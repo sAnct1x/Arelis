@@ -653,7 +653,8 @@ class ConversationStage(GlassFrame):
         doc_h = int(doc.size().height()) if doc.size().height() > 0 else 0
         view_h = edit.viewport().height()
         chrome = (edit.height() - view_h) if 0 < view_h < edit.height() else 16
-        cap = line_h * cap_lines + chrome
+        doc_margin = round(doc.documentMargin() * 2)
+        cap = line_h * cap_lines + chrome + doc_margin
         # One extra line of slack: padding and the caret otherwise leave a
         # 1-4px leftover after layout, and bar.maximum() is still 0 inside
         # this call, so a later paint hides the start of the prompt.
@@ -743,7 +744,7 @@ class ConversationStage(GlassFrame):
             return
         self._settle_prompt_box(
             floor=int(METRICS["control"]),
-            cap_lines=8,
+            cap_lines=12,
             inner=max(1, self.input.viewport().width() - 8, self.input.width() - 16),
         )
 

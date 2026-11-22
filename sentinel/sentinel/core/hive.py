@@ -636,6 +636,110 @@ class SwarmHive:
         self.bus.publish_nowait(EventTopic.UNIT_RETIRED, {"unit_id": unit_id, "caste": unit.caste})
         return True
 
+    def recall_unit(self, unit_id: str) -> dict[str, Any]:
+        """Fail-closed per-unit recall: return only this unit to patrol, never touch another."""
+        if self.emp.is_tripped:
+            return {"ok": False, "error": "EMP Kill-Switch active"}
+        uid = str(unit_id or "").strip()
+        unit = self.units.get(uid)
+        if unit is None:
+            return {"ok": False, "error": f"Unknown Sentinel unit_id: {uid!r}"}
+        unit.pack_id = None
+        unit.pack_role = "SOLO"
+        unit.target_node_id = None
+        unit.transition(
+            SentinelState.PATROLLING,
+            task="Recalled to patrol",
+            laser_active=False,
+        )
+        self.telemetry.record(
+            "INFO",
+            unit_id=uid,
+            caste=unit.caste,
+            phase="PATROLLING",
+            message=f"Recalled {uid} to patrol",
+        )
+        self.bus.publish_nowait(EventTopic.UNIT_STATE, unit.to_dict())
+        return {
+            "ok": True,
+            "unit_id": uid,
+            "caste": unit.caste,
+            "state": unit.state.value,
+        }
+
+    async def retask_unit(
+        self,
+        unit_id: str,
+        task_payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Fail-closed per-unit retask: run only on this exact unit, no fallback or wingmen."""
+        if self.emp.is_tripped:
+            return {"ok": False, "error": "EMP Kill-Switch active"}
+        uid = str(unit_id or "").strip()
+        unit = self.units.get(uid)
+        if unit is None:
+            return {"ok": False, "error": f"Unknown Sentinel unit_id: {uid!r}"}
+        cid = unit.caste
+        method = str(task_payload.get("method") or "").strip().upper()
+        if not method or method == "GET":
+            get_url = str(
+                task_payload.get("url")
+                or task_payload.get("query")
+                or task_payload.get("target")
+                or ""
+            ).strip()
+            if "://" in get_url:
+                verdict = check_send_allowed("GET", method="GET", url=get_url)
+                if not verdict.allowed:
+                    return {"ok": False, "parked": True, "error": verdict.reason}
+        if method and method != "GET":
+            send_url = str(
+                task_payload.get("url")
+                or task_payload.get("target")
+                or task_payload.get("path")
+                or ""
+            )
+            verdict = check_send_allowed(method, method=method, url=send_url)
+            if not verdict.allowed:
+                return {
+                    "ok": False,
+                    "parked": True,
+                    "error": verdict.reason or "queued for operator sign-off",
+                }
+            if verdict.token:
+                parked_send = self._authorize_work(
+                    verdict.token,
+                    send_url or cid,
+                    f"send {method}",
+                )
+                if parked_send is not None:
+                    return parked_send
+        token, target = self._token_for_task(cid, task_payload)
+        parked = self._authorize_work(token, target, f"retask {uid}")
+        if parked is not None:
+            return parked
+        handler = self.registry.get(cid)
+        action_label = str(
+            task_payload.get("action")
+            or task_payload.get("capability")
+            or "task"
+        )
+        self.telemetry.record(
+            "INFO",
+            unit_id=uid,
+            caste=cid,
+            phase="DISPATCH",
+            message=f"Retasked {uid} ({cid}:{action_label})",
+        )
+        res = await handler.execute(
+            unit,
+            task_payload,
+            bus=self.bus,
+            ledger=self.ledger,
+            nodes=self.nodes,
+        )
+        return dict(res) if isinstance(res, dict) else {"ok": True, "result": res}
+
     def upgrade_unit(
         self,
         unit_id: str,

@@ -23,7 +23,15 @@ from typing import Any
 from arelis import sentinel_client
 from arelis.tools.base import ToolResult
 
-BUILT_IN_CASTES = ("harvester", "warden", "sanitizer", "tripwire", "stalker", "cryptarch")
+BUILT_IN_CASTES = (
+    "harvester",
+    "warden",
+    "sanitizer",
+    "tripwire",
+    "stalker",
+    "cryptarch",
+    "interceptor",
+)
 LOG_FILTERS = ("all", "threat", "sanitize", "harvest", "tripwire")
 _LOG_LIMIT_MAX = 60
 _LIST_MAX = 50
@@ -110,10 +118,29 @@ class SentinelStatusTool:
         ]
         if by_caste:
             parts.append(", ".join(f"{k} {v}" for k, v in sorted(by_caste.items())))
+        data: dict[str, Any] = {
+            "emp_tripped": tripped,
+            "total_units": total,
+            "by_caste": by_caste,
+        }
+        if isinstance(metrics.get("security_events"), int):
+            sec = int(metrics["security_events"])
+            parts.append(f"{sec} security event" + ("" if sec == 1 else "s"))
+            data["security_events"] = sec
+        if isinstance(metrics.get("warrants_minted"), int):
+            warrants = int(metrics["warrants_minted"])
+            parts.append(f"{warrants} warrant" + ("" if warrants == 1 else "s"))
+            data["warrants_minted"] = warrants
+        auth = snap.get("authority")
+        if isinstance(auth, dict):
+            pending = auth.get("pending_count")
+            if isinstance(pending, int) and pending > 0:
+                parts.append(f"{pending} awaiting sign-off")
+                data["authority_pending"] = pending
         return ToolResult(
             ok=True,
             output=". ".join(parts) + ".",
-            data={"emp_tripped": tripped, "total_units": total, "by_caste": by_caste},
+            data=data,
         )
 
 
@@ -266,7 +293,8 @@ class SentinelCastesTool:
 
 
 MAX_DEPLOY = 50
-COMMAND_ACTIONS = ("deploy", "stop", "retask", "mission")
+COMMAND_ACTIONS = ("deploy", "stop", "recall", "retask", "mission")
+MISSION_MODES = ("multi", "arxiv", "wikipedia", "horizons", "url", "security_audit")
 
 # Advertised capability -> the payload the caste's handler actually acts on.
 # Only capabilities with a real execute() branch are here; anything else is
@@ -359,6 +387,30 @@ RETASK_MAP: dict[tuple[str, str], tuple[dict[str, Any], str | None, bool, frozen
         True,
         frozenset({"root_hash", "proof_path", "algorithm"}),
     ),
+    ("interceptor", "ast:parse"): (
+        {"capability": "ast:parse"},
+        "code",
+        True,
+        frozenset({"filename", "strict"}),
+    ),
+    ("interceptor", "ast:audit_syntax"): (
+        {"capability": "ast:audit_syntax"},
+        "code",
+        True,
+        frozenset({"filename", "strict"}),
+    ),
+    ("interceptor", "ast:detect_banned_calls"): (
+        {"capability": "ast:detect_banned_calls"},
+        "code",
+        True,
+        frozenset({"filename", "strict"}),
+    ),
+    ("interceptor", "ast:verify_ast_clean"): (
+        {"capability": "ast:verify_ast_clean"},
+        "code",
+        True,
+        frozenset({"filename", "strict"}),
+    ),
 }
 
 
@@ -419,7 +471,7 @@ class SentinelCommandTool:
     """One normal-control tool. EMP stays separate (sentinel_emp)."""
 
     name = "sentinel_command"
-    description = "Command sentinels: deploy, stop, retask, or start a research mission."
+    description = "Command sentinels: deploy, stop, recall, retask, or start a research mission."
     risk = "write"
     parameters_schema: dict[str, Any] = {
         "type": "object",
@@ -432,6 +484,7 @@ class SentinelCommandTool:
             "target": {"type": "string"},
             "payload": {"type": "object"},
             "question": {"type": "string"},
+            "mode": {"type": "string", "enum": list(MISSION_MODES)},
         },
         "required": ["action"],
     }
@@ -439,8 +492,9 @@ class SentinelCommandTool:
     _ARGS = {
         "deploy": {"caste", "count"},
         "stop": {"unit_id", "caste", "count"},
-        "retask": {"caste", "capability", "target", "payload"},
-        "mission": {"question"},
+        "recall": {"unit_id"},
+        "retask": {"unit_id", "caste", "capability", "target", "payload"},
+        "mission": {"question", "mode"},
     }
 
     async def run(self, action: str = "", **kwargs: Any) -> ToolResult:
@@ -536,13 +590,28 @@ class SentinelCommandTool:
             },
         )
 
+    async def _recall(self, unit_id: str = "") -> ToolResult:
+        uid = str(unit_id or "").strip()
+        if not uid:
+            return _refuse("unit_id is required.")
+        reply = await _call("recall_unit", unit_id=uid)
+        if not reply.get("ok"):
+            return _fail(reply) if reply.get("error") else _refuse(f"No unit {uid}.")
+        return ToolResult(ok=True, output=f"Recalled {uid} to patrol.", data=reply)
+
     async def _retask(
-        self, caste: str = "", capability: str = "", target: str = "", payload: Any = None
+        self,
+        caste: str = "",
+        capability: str = "",
+        target: str = "",
+        payload: Any = None,
+        unit_id: str = "",
     ) -> ToolResult:
         if not str(capability or "").strip():
             return _refuse("capability is required.")
         if payload is not None and not isinstance(payload, dict):
             return _refuse("payload must be an object.")
+        uid = str(unit_id or "").strip()
         cid, desc, err = await _known_caste(caste)
         if err is not None:
             return err
@@ -551,15 +620,31 @@ class SentinelCommandTool:
         )
         if task is None:
             return _refuse(why)
-        reply = await _call("dispatch_task", caste=cid, payload=task)
+        if uid:
+            reply = await _call("retask_unit", unit_id=uid, payload=task)
+        else:
+            reply = await _call("dispatch_task", caste=cid, payload=task)
         result = reply.get("result") if isinstance(reply.get("result"), dict) else {}
         if not reply.get("ok"):
             msg = str(result.get("error") or reply.get("error") or sentinel_client.REFUSED)
             return ToolResult(ok=False, output=msg, data={"result": result})
-        return ToolResult(ok=True, output=f"{cid} did {capability}.", data={"result": result})
+        who = uid or cid
+        return ToolResult(ok=True, output=f"{who} did {capability}.", data={"result": result})
 
-    async def _mission(self, question: str = "") -> ToolResult:
+    async def _mission(self, question: str = "", mode: str = "multi") -> ToolResult:
         q = str(question or "").strip()
+        m = str(mode or "multi").strip().lower()
+        if m not in MISSION_MODES:
+            return _refuse("mode must be one of " + "|".join(MISSION_MODES) + ".")
+        if m == "security_audit":
+            reply = await _call("run_live_mission", mode="security_audit", query=q)
+            if not reply.get("ok"):
+                return _fail(reply)
+            return ToolResult(
+                ok=True,
+                output="Security audit started. Its findings land in sentinel_logs.",
+                data=reply,
+            )
         if not q:
             return _refuse("question is required.")
         if q.upper().startswith("REQ-"):
@@ -595,10 +680,19 @@ class SentinelCommandTool:
                     output=f"Mission {ref} {status}: {err}",
                     data=reply,
                 )
-        targets = [
-            {"action": "arxiv", "query": q, "max_results": 4},
-            {"action": "wikipedia", "query": q},
-        ]
+        if m == "arxiv":
+            targets: list[dict[str, Any]] = [{"action": "arxiv", "query": q, "max_results": 6}]
+        elif m == "wikipedia":
+            targets = [{"action": "wikipedia", "query": q}]
+        elif m == "horizons":
+            targets = [{"action": "horizons", "target": q}]
+        elif m == "url":
+            targets = [{"action": "url", "url": q}]
+        else:
+            targets = [
+                {"action": "arxiv", "query": q, "max_results": 4},
+                {"action": "wikipedia", "query": q},
+            ]
         reply = await _call("start_harvest_mission", question=q, targets=targets)
         if not reply.get("ok"):
             return _fail(reply)

@@ -177,10 +177,18 @@ def test_overseer_hud_actions_refuse_wrong_unit_and_preserve_confirm(qt_app) -> 
         {"unit_id": "SNT-WRD-001", "caste": "warden"},
         selected_unit=selected,
     )
-    assert recall["ok"] is False
-    assert recall["path"] is None
-    assert recall["body"] is None
-    assert "different unit" in recall["status"]
+    assert recall["ok"] is True
+    assert recall["path"] == "/api/overseer/recall"
+    assert recall["body"] == {"unit_id": "SNT-WRD-001"}
+
+    recall_mismatch = overseer_runtime.resolve_hud_command(
+        "recall",
+        {"unit_id": "SNT-HRV-001"},
+        selected_unit=selected,
+    )
+    assert recall_mismatch["ok"] is False
+    assert recall_mismatch["path"] is None
+    assert recall_mismatch["body"] is None
 
     wrong_id = overseer_runtime.resolve_hud_command(
         "retask",
@@ -529,7 +537,7 @@ def test_overseer_hud_named_row_invoke_keeps_inspector_across_polls(qt_app) -> N
         {"unit_id": "SNT-HRV-001", "caste": "harvester", "query": "scan"},
         selected_unit=selected,
     )
-    assert recall["ok"] is False and recall["body"] is None
+    assert recall["ok"] is True and recall["body"] == {"unit_id": "SNT-HRV-001"}
     assert retask["ok"] is False and retask["body"] is None
 
     hud_item.deleteLater()
@@ -685,7 +693,6 @@ def test_overseer_unavailable_actions_are_disabled_and_inert(qt_app) -> None:
     root.hudCommand.connect(lambda name, _payload: seen.append(str(name)))
     for name in (
         "OverseerFooter_recall",
-        "OverseerAction_recall",
         "OverseerAction_retask",
     ):
         item = _named(root, name)
@@ -701,14 +708,15 @@ def test_overseer_unavailable_actions_are_disabled_and_inert(qt_app) -> None:
             qt_app.processEvents()
     assert seen == []
     selected = {"unit_id": "SNT-WRD-001", "caste": "warden"}
-    for command in ("recall", "retask"):
-        plan = overseer_runtime.resolve_hud_command(
-            command,
-            {"unit_id": "SNT-WRD-001", "caste": "warden", "query": "scan"},
-            selected_unit=selected,
-        )
-        assert plan["ok"] is False
-        assert plan["body"] is None
+    plan = overseer_runtime.resolve_hud_command(
+        "retask",
+        {"unit_id": "SNT-WRD-001", "caste": "warden", "query": "scan"},
+        selected_unit=selected,
+    )
+    assert plan["ok"] is False
+    assert plan["body"] is None
+    recall_btn = _named(root, "OverseerAction_recall")
+    assert recall_btn is not None and bool(recall_btn.property("enabled")) is True
     focus = _named(root, "OverseerAction_focus")
     assert focus is not None and bool(focus.property("enabled")) is True
     fit = _named(root, "OverseerAction_fitSwarm")
