@@ -92,8 +92,8 @@ def _lp1_scalar(
     if det < 0.0:
         return None
     sdet = math.sqrt(det)
-    t_left = (-b - sdet) * 0.5
-    t_right = (-b + sdet) * 0.5
+    t_left = (-b - sdet) / 2.0
+    t_right = (-b + sdet) / 2.0
     for j in range(line_i):
         d2x, d2y, p2x, p2y = lines[j]
         n2x, n2y = -d2y, d2x
@@ -126,7 +126,7 @@ def _lp2_scalar(
     vmax: float,
 ) -> tuple[float, float, bool]:
     rx, ry = prefx, prefy
-    sp = math.hypot(rx, ry)
+    sp = math.sqrt(rx * rx + ry * ry)
     if sp > vmax > 0.0:
         s = vmax / sp
         rx *= s
@@ -156,7 +156,7 @@ def _lp3_scalar(
             if viol > 0.0:
                 rx += nx * viol
                 ry += ny * viol
-        sp = math.hypot(rx, ry)
+        sp = math.sqrt(rx * rx + ry * ry)
         if sp > vmax > 0.0:
             s = vmax / sp
             rx *= s
@@ -404,7 +404,7 @@ class OrcaPairSolver:
         ]
         nbr_dist_sq = ORCA_NBR_DIST * ORCA_NBR_DIST
         gap_min_f = float(gap_min)
-        inv_tau = 1.0 / max(float(tau), 1e-3)
+        tau_f = max(float(tau), 1e-3)
         pi_list = pair_i.tolist() if hasattr(pair_i, "tolist") else list(pair_i)
         pj_list = pair_j.tolist() if hasattr(pair_j, "tolist") else list(pair_j)
         g_list = gaps.tolist() if hasattr(gaps, "tolist") else list(gaps)
@@ -424,12 +424,11 @@ class OrcaPairSolver:
             ln = math.sqrt(nx * nx + ny * ny + nz * nz)
             if ln < 1e-8:
                 continue
-            inv_ln = 1.0 / ln
-            nx *= inv_ln
-            ny *= inv_ln
-            nz *= inv_ln
+            nx /= ln
+            ny /= ln
+            nz /= ln
             gk = float(g_list[k])
-            rhs_rel = (gap_min_f - gk) * inv_tau
+            rhs_rel = (gap_min_f - gk) / tau_f
             if gk < 0.0:
                 ri, rj = 0.5, 0.5
             elif mass_list[i] < mass_list[j] - 1e-9:
@@ -458,15 +457,14 @@ class OrcaPairSolver:
             for rhs, j, nx, ny, nz, resp in neigh[:ORCA_MAX_NBR]:
                 n2x = nx * e1x + ny * e1y + nz * e1z
                 n2y = nx * e2x + ny * e2y + nz * e2z
-                plen = math.hypot(n2x, n2y)
+                plen = math.sqrt(n2x * n2x + n2y * n2y)
                 if plen < 0.15:
                     continue
-                inv_plen = 1.0 / plen
-                n2x *= inv_plen
-                n2y *= inv_plen
+                n2x /= plen
+                n2y /= plen
                 fwd_n3 = fx * nx + fy * ny + fz * nz
                 specs.append(
-                    (rhs, j, nx, ny, nz, resp, n2x, n2y, inv_plen, n2y, -n2x, fwd_n3)
+                    (rhs, j, nx, ny, nz, resp, n2x, n2y, plen, n2y, -n2x, fwd_n3)
                 )
             linespec[i] = specs
         self.linespec = linespec
@@ -493,20 +491,20 @@ class OrcaPairSolver:
                 vix, viy, viz = v_list[i]
                 lines: list[tuple[float, float, float, float]] = []
                 for (
-                    rhs, j, nx, ny, nz, resp, n2x, n2y, inv_plen, dx, dy, fwd_n3
+                    rhs, j, nx, ny, nz, resp, n2x, n2y, plen, dx, dy, fwd_n3
                 ) in specs:
                     vjx, vjy, vjz = v_list[j]
                     b = (1.0 - resp) * (vix * nx + viy * ny + viz * nz) + resp * (
                         (vjx * nx + vjy * ny + vjz * nz) + rhs
                     )
-                    bound = (b - fwd_comp * fwd_n3) * inv_plen
+                    bound = (b - fwd_comp * fwd_n3) / plen
                     lines.append((dx, dy, n2x * bound, n2y * bound))
                 rx, ry, ok = _lp2_scalar(lines, pref2x, pref2y, spd_lim)
                 if not ok:
                     rx, ry = _lp3_scalar(lines, pref2x, pref2y, spd_lim)
             else:
                 rx, ry = pref2x, pref2y
-                sp = math.hypot(rx, ry)
+                sp = math.sqrt(rx * rx + ry * ry)
                 if sp > spd_lim > 0.0:
                     s = spd_lim / sp
                     rx *= s
