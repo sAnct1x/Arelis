@@ -90,13 +90,38 @@ class DesktopSession:
             return None
         return _wall_result(hit)
 
+    def _with_quick_snapshot(self, base: DeskResult, *, max_chars: int = 1600) -> DeskResult:
+        """Append a compact UIA snapshot when available so the next step needs no extra round."""
+        if not base.ok or not uia_available():
+            return base
+        text, refs, err = snapshot_window()
+        if err or not refs:
+            return base
+        self.refs = refs
+        title = foreground_title()
+        head = f"window: {title}\n" if title else ""
+        snap_out = (head + text).strip()
+        if len(snap_out) > max_chars:
+            snap_out = snap_out[: max_chars - 20] + "\n…(snapshot truncated)"
+        data = dict(base.data or {})
+        data["snapshot"] = True
+        data["refs"] = list(refs)
+        if title and "title" not in data:
+            data["title"] = title
+        return DeskResult(
+            ok=True,
+            output=f"{base.output}\n\n{snap_out}",
+            data=data,
+        )
+
     async def open(self, target: str) -> DeskResult:
         receipt, err = open_app(target, aliases=self.aliases)
         if err:
             return DeskResult(ok=False, output=err)
         self.refs.clear()
         await cooperative_wait(0.35)
-        return DeskResult(ok=True, output=receipt or "Opened.", data={"target": target})
+        res = DeskResult(ok=True, output=receipt or "Opened.", data={"target": target})
+        return self._with_quick_snapshot(res)
 
     async def windows(self) -> DeskResult:
         rows = list_windows()
@@ -114,7 +139,8 @@ class DesktopSession:
         if not focus_window(hit.hwnd):
             return DeskResult(ok=False, output=f"Could not focus {hit.title!r}.")
         self.refs.clear()
-        return DeskResult(ok=True, output=f"Focused {hit.title}.", data={"title": hit.title})
+        res = DeskResult(ok=True, output=f"Focused {hit.title}.", data={"title": hit.title})
+        return self._with_quick_snapshot(res)
 
     async def snapshot(self) -> DeskResult:
         text, refs, err = snapshot_window()
@@ -345,11 +371,13 @@ class DesktopSession:
                     data={"code": "SECRET_FIELD", "wall": "password"},
                 )
         await pointer_fn(hit.x, hit.y)
-        if verb != "hover":
-            self.refs.clear()
-        return DeskResult(
+        res = DeskResult(
             ok=True, output=f"{past_verb} {hit.name}.", data={"label": hit.name}
         )
+        if verb != "hover":
+            self.refs.clear()
+            return self._with_quick_snapshot(res)
+        return res
 
     async def scroll(self, direction: str = "down", *, amount: int = 3) -> DeskResult:
         hands = self._hands()

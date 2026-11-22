@@ -33,6 +33,10 @@ _CONTROL_NAMES = {
 }
 
 
+UIA_VALUE_VALUE_PROPERTY_ID = 30045
+UIA_TOGGLE_STATE_PROPERTY_ID = 30086
+
+
 @dataclass
 class DeskRef:
     ref: str
@@ -43,6 +47,18 @@ class DeskRef:
     w: float
     h: float
     is_password: bool = False
+    value: str = ""
+    state: str = ""
+
+    def line(self) -> str:
+        bits = [f"[{self.ref}]", self.role, f"{self.name!r}"]
+        if self.state:
+            bits.append(f"state={self.state}")
+        if self.value and not self.is_password and self.value != self.name:
+            short = " ".join(self.value.split())[:80]
+            if short:
+                bits.append(f"value={short!r}")
+        return " ".join(bits)
 
 
 def uia_available() -> bool:
@@ -140,6 +156,26 @@ def _walk_uia(limit: int = SNAPSHOT_LIMIT) -> list[DeskRef]:
             secret = bool(el.GetCurrentPropertyValue(UIA_IsPasswordPropertyId))
         except Exception:
             secret = False
+        val = ""
+        if not secret:
+            try:
+                raw_val = el.GetCurrentPropertyValue(UIA_VALUE_VALUE_PROPERTY_ID)
+                if isinstance(raw_val, str) and raw_val.strip():
+                    val = raw_val.strip()[:600]
+            except Exception:
+                # Control does not support ValuePattern.
+                val = ""
+        state = ""
+        if ctype in {50002, 50013}:
+            try:
+                tstate = el.GetCurrentPropertyValue(UIA_TOGGLE_STATE_PROPERTY_ID)
+                if tstate == 1:
+                    state = "checked"
+                elif tstate == 0:
+                    state = "unchecked"
+            except Exception:
+                # Control does not support TogglePattern.
+                state = ""
         rows.append(
             DeskRef(
                 ref=f"d{len(rows) + 1}",
@@ -150,6 +186,8 @@ def _walk_uia(limit: int = SNAPSHOT_LIMIT) -> list[DeskRef]:
                 w=width,
                 h=height,
                 is_password=secret,
+                value=val,
+                state=state,
             )
         )
         if len(rows) >= limit:
@@ -178,7 +216,7 @@ def snapshot_window() -> tuple[str, dict[str, DeskRef], str | None]:
             {},
             None,
         )
-    lines = [f"[{r.ref}] {r.role} {r.name!r}" for r in rows]
+    lines = [r.line() for r in rows]
     refs = {r.ref: r for r in rows}
     return "\n".join(lines), refs, None
 
@@ -191,8 +229,13 @@ def read_window(refs: dict[str, DeskRef]) -> str:
         refs = new_refs
         if text.startswith("No named"):
             return text
-    names = [r.name for r in refs.values() if r.name]
-    return "\n".join(names[:80]) or "(empty)"
+    lines: list[str] = []
+    for r in list(refs.values())[:80]:
+        if r.value and not r.is_password and r.value != r.name:
+            lines.append(f"{r.name}: {r.value[:240]}")
+        elif r.name:
+            lines.append(r.name)
+    return "\n".join(lines) or "(empty)"
 
 
 def find_ref(

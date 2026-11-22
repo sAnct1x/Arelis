@@ -232,4 +232,75 @@ def test_custom_combobox_is_recognized_as_select_target() -> None:
     asyncio.run(_run())
 
 
+def test_browser_element_state_badges_and_trailing_newline_submit_and_dialog_guard() -> None:
+    """ElementInfo formats state=; trailing newline submits; dialog guard dismisses alerts."""
+    from arelis.browser.actions import ElementInfo, PlaywrightDriver
+    from arelis.browser.session import BrowserSession
+
+    el = ElementInfo(
+        ref="e42",
+        tag="input",
+        role="switch",
+        type="checkbox",
+        text="Dark mode",
+        state="checked",
+    )
+    assert "state=checked" in el.line()
+
+    session = BrowserSession.fake()
+
+    async def _run() -> None:
+        await session.ensure("chrome")
+        # Trailing newline in type_text triggers Enter + post-submit snapshot
+        typed = await session.type_text("e2", "astrophysics\n")
+        assert typed.ok
+        assert typed.data.get("submitted") is True
+        assert typed.data.get("snapshot") is True
+        assert ("e2", "astrophysics") in session._driver.typed  # type: ignore[attr-defined]
+        assert "Enter" in session._driver.pressed  # type: ignore[attr-defined]
+        assert "elements:" in typed.output
+
+        # Direct press("Enter") also returns a post-press snapshot
+        pressed = await session.press("Enter")
+        assert pressed.ok
+        assert pressed.data.get("snapshot") is True
+        assert "elements:" in pressed.output
+
+        # Native JS dialog handler auto-dismisses alert and records _last_dialog
+        driver = PlaywrightDriver()
+        handlers: dict[str, object] = {}
+
+        class _DialogPage:
+            def on(self, event: str, fn: object) -> None:
+                handlers[event] = fn
+
+        class _FakeDialog:
+            def __init__(self, dtype: str, message: str) -> None:
+                self.type = dtype
+                self.message = message
+                self.dismissed = False
+                self.accepted = False
+
+            async def dismiss(self) -> None:
+                self.dismissed = True
+
+            async def accept(self) -> None:
+                self.accepted = True
+
+        dpage = _DialogPage()
+        driver._bind_dialog_guard(dpage)
+        assert "dialog" in handlers
+        alert = _FakeDialog("alert", "Session expiring soon")
+        await handlers["dialog"](alert)  # type: ignore[operator]
+        assert alert.dismissed
+        assert driver._last_dialog == "alert: Session expiring soon"
+
+        unload = _FakeDialog("beforeunload", "Leave site?")
+        await handlers["dialog"](unload)  # type: ignore[operator]
+        assert unload.accepted
+
+    asyncio.run(_run())
+
+
+
 

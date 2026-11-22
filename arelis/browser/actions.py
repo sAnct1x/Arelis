@@ -40,6 +40,7 @@ class ElementInfo:
     href: str = ""
     autocomplete: str = ""
     region: str = ""
+    state: str = ""
 
     def is_secret_field(self) -> bool:
         if self.type.lower() in _SECRET_INPUT_TYPES:
@@ -59,6 +60,8 @@ class ElementInfo:
             bits.append(f"role={self.role}")
         if self.type:
             bits.append(f"type={self.type}")
+        if self.state:
+            bits.append(f"state={self.state}")
         if self.region and self.region != "main":
             bits.append(self.region)
         if self.text:
@@ -1382,6 +1385,7 @@ class PlaywrightDriver:
         self._mode = ""
         self._placed = False
         self._fresh_launch = False
+        self._last_dialog = ""
 
     async def ensure(
         self,
@@ -1756,7 +1760,37 @@ class PlaywrightDriver:
             page.set_default_navigation_timeout(NAV_TIMEOUT_MS)
         except Exception:
             pass
+        self._bind_dialog_guard(page)
         return None
+
+    def _bind_dialog_guard(self, page: Any) -> None:
+        """Auto-dismiss blocking native JS dialogs so CDP calls do not wedge."""
+        if getattr(page, "_arelis_dialog_bound", False):
+            return
+        on_fn = getattr(page, "on", None)
+        if not callable(on_fn):
+            return
+
+        async def _on_dialog(dialog: Any) -> None:
+            dtype = str(getattr(dialog, "type", "") or "").lower()
+            msg = str(getattr(dialog, "message", "") or "").strip()
+            if msg:
+                self._last_dialog = f"{dtype or 'dialog'}: {msg[:160]}"
+            try:
+                if dtype == "beforeunload":
+                    await dialog.accept()
+                else:
+                    await dialog.dismiss()
+            except Exception:
+                # Dialog may already be closed by the page.
+                pass
+
+        try:
+            on_fn("dialog", _on_dialog)
+            page._arelis_dialog_bound = True
+        except Exception:
+            # Test fakes may not implement event listeners.
+            pass
 
     def _fail_keep_or_drop(self, exc: BaseException) -> ActionResult:
         if _is_cdp_dead(exc):
@@ -1922,6 +1956,7 @@ class PlaywrightDriver:
                     href=item.get("href") or "",
                     autocomplete=item.get("autocomplete") or "",
                     region=str(item.get("region") or ""),
+                    state=str(item.get("state") or ""),
                 )
                 for item in nodes
             }
@@ -1932,6 +1967,9 @@ class PlaywrightDriver:
             lines = [f"title: {title}", f"url: {url}"]
             if heading:
                 lines.append(f"heading: {heading}")
+            if self._last_dialog:
+                lines.append(f"dialog_dismissed: {self._last_dialog}")
+                self._last_dialog = ""
             if (focus or "").strip().lower() == "results":
                 results = format_result_lines(self._refs)
                 lines.append(results or "results:")
