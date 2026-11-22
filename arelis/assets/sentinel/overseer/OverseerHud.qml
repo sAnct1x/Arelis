@@ -1233,34 +1233,32 @@ Item {
                     height: 36
                     width: (actionGrid.width - 8) / 2
                     radius: 8
-                    color: "transparent"
-                    border.color: "#2f2358"
+                    color: recallMouse.containsMouse && enabled ? "#261a44" : "transparent"
+                    border.color: enabled ? "#8b6cf2" : "#2f2358"
                     border.width: 1
-                    enabled: false
+                    enabled: hud.selectedUnitId !== ""
                     Accessible.role: Accessible.Button
                     Accessible.name: "Recall"
-                    Accessible.description: "Not available: Recall would shrink the whole caste, not just this unit."
+                    Accessible.description: "Return this unit to patrol."
                     HoverHandler { id: recallHover }
                     ToolTip.visible: recallHover.hovered
                     ToolTip.delay: 400
-                    ToolTip.text: "Not available: Recall would shrink the whole caste, not just this unit."
-                    Row {
+                    ToolTip.text: "Return this unit to patrol."
+                    Text {
                         anchors.centerIn: parent
-                        spacing: 6
-                        Text {
-                            text: "Recall"
-                            color: "#8a7bbf"
-                            font.pixelSize: 14
-                            font.weight: Font.Medium
-                        }
-                        Text {
-                            text: "\u24d8"
-                            color: "#8a7bbf"
-                            font.pixelSize: 12
-                            anchors.verticalCenter: parent.verticalCenter
-                        }
+                        text: "Recall"
+                        color: parent.enabled ? "#e0d4ff" : "#8a7bbf"
+                        font.pixelSize: 14
+                        font.weight: Font.Medium
                     }
-                    MouseArea { anchors.fill: parent; enabled: false }
+                    MouseArea {
+                        id: recallMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        enabled: parent.enabled
+                        cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                        onClicked: hud.hudCommand("recall", { unit_id: hud.selectedUnitId })
+                    }
                 }
 
                 Rectangle {

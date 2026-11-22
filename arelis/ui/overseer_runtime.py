@@ -28,6 +28,12 @@ CASTE_COLOR = {
     "sanitizer": "#f2c56b",
     "tripwire": "#7ee0c8",
 }
+# Additional built-in castes rendered in the warden 3D bucket while keeping
+# their own caste colour on instances and HUD rows.
+EXTRA_CASTE_COLOR = {
+    "cryptarch": "#e040fb",
+    "interceptor": "#00e5ff",
+}
 # Eye lenses (GAP.md item 1): caste colour; a fetching Harvester's eyes turn
 # #2fc4ff, and red is only for a unit engaged on a real threat.
 LENS_COLOR = {
@@ -680,7 +686,11 @@ def swarm_rows(
                 "role": CASTE_ROLE.get(str(unit.get("caste") or ""), unit.get("caste")),
                 "state": unit.get("state"),
                 "task": unit.get("current_task") or empty_task_label(unit.get("state")),
-                "color": CASTE_COLOR.get(str(unit.get("caste") or ""), "#e0d4ff"),
+                "color": (
+                    CASTE_COLOR.get(str(unit.get("caste") or "").lower())
+                    or EXTRA_CASTE_COLOR.get(str(unit.get("caste") or "").lower())
+                    or "#e0d4ff"
+                ),
             })
     return rows
 
@@ -1602,9 +1612,18 @@ def build_buckets(units: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]
     for i, u in enumerate(units):
         if u.get("culled"):
             continue
-        caste = str(u.get("caste") or "warden").lower()
-        if caste not in CASTE_COLOR:
-            caste = "warden"
+        raw_caste = str(u.get("caste") or "warden").lower()
+        caste = raw_caste if raw_caste in CASTE_COLOR else "warden"
+        display_color = (
+            CASTE_COLOR.get(raw_caste)
+            or EXTRA_CASTE_COLOR.get(raw_caste)
+            or CASTE_COLOR[caste]
+        )
+        display_lens = (
+            LENS_COLOR.get(raw_caste)
+            or EXTRA_CASTE_COLOR.get(raw_caste)
+            or LENS_COLOR[caste]
+        )
         lod = int(u.get("lod", 1))
         lod = 0 if lod < 0 else 2 if lod > 2 else lod
         pos = u.get("position") or [u.get("x") or 0, u.get("y") or 0, u.get("z") or 0]
@@ -1639,9 +1658,9 @@ def build_buckets(units: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]
                 "vz": vz,
                 "heading_deg": heading_deg(u.get("heading")),
                 "scale": scale,
-                "color": CASTE_COLOR[caste],
-                "lens": LENS_COLOR[caste],
-                "eye": eye_color(u, caste),
+                "color": display_color,
+                "lens": display_lens,
+                "eye": eye_color(u, caste) if raw_caste in CASTE_COLOR else display_lens,
                 "phase": float(u.get("phase") or (i * 1.7)),
                 "claw": claw_open(state),
                 "limp": limp,
@@ -2898,19 +2917,45 @@ def point_in_rects(x: int, y: int, rects: list[tuple[int, int, int, int]]) -> bo
     return False
 
 
+_SNAPSHOT_HTTP_CLIENT: Any = None
+
+
+def _snapshot_http_client() -> Any:
+    global _SNAPSHOT_HTTP_CLIENT
+    if _SNAPSHOT_HTTP_CLIENT is None:
+        import httpx
+
+        _SNAPSHOT_HTTP_CLIENT = httpx.Client(
+            timeout=2.0,
+            limits=httpx.Limits(max_connections=4, max_keepalive_connections=2),
+        )
+    return _SNAPSHOT_HTTP_CLIENT
+
+
 def fetch_snapshot(host: str, port: int, token: str, opener: Any = None) -> dict[str, Any]:
     """GET /api/snapshot with the session token header. Never log the token."""
-    import urllib.request
+    if opener is not None:
+        import urllib.request
 
-    req = urllib.request.Request(
-        f"http://{host}:{int(port)}/api/snapshot",
-        headers={"X-Sentinel-Token": token, "Accept": "application/json"},
-        method="GET",
-    )
-    get = opener or urllib.request.urlopen
-    with get(req, timeout=2.0) as resp:
-        raw = resp.read()
-    data = json.loads(raw.decode("utf-8"))
+        req = urllib.request.Request(
+            f"http://{host}:{int(port)}/api/snapshot",
+            headers={"X-Sentinel-Token": token, "Accept": "application/json"},
+            method="GET",
+        )
+        with opener(req, timeout=2.0) as resp:
+            raw = resp.read()
+        data = json.loads(raw.decode("utf-8"))
+    else:
+        resp = _snapshot_http_client().get(
+            f"http://{host}:{int(port)}/api/snapshot",
+            headers={
+                "X-Sentinel-Token": token,
+                "Accept": "application/json",
+                "Connection": "keep-alive",
+            },
+        )
+        resp.raise_for_status()
+        data = resp.json()
     if not isinstance(data, dict):
         return data
     if "egress_muted" not in data:
@@ -3011,9 +3056,16 @@ def resolve_hud_command(
             "local": True,
         }
     if name == "recall":
-        return refuse(
-            "Unavailable: no per-unit recall route; caste scale-down can "
-            "affect a different unit"
+        if not selected_id:
+            return refuse("Unavailable: recall requires a selected unit")
+        if payload_id and payload_id != selected_id:
+            return refuse(
+                "Unavailable: recall would not match the selected unit"
+            )
+        return accept(
+            "/api/overseer/recall",
+            {"unit_id": selected_id},
+            "Recall requested",
         )
     if name == "deploy":
         selected_caste = str(selected.get("caste") or "").strip().lower()

@@ -336,6 +336,15 @@ def test_command_and_emp_send_the_right_ops_and_refuse_bad_input(
                 "crypto:entropy_calc",
             ],
         },
+        {
+            "caste_id": "interceptor",
+            "allowed_capabilities": [
+                "ast:parse",
+                "ast:audit_syntax",
+                "ast:detect_banned_calls",
+                "ast:verify_ast_clean",
+            ],
+        },
     ]
     sent: list[tuple[str, dict[str, Any]]] = []
     gate: dict[str, Any] = {"release": None, "sibling_first": []}
@@ -454,12 +463,61 @@ def test_command_and_emp_send_the_right_ops_and_refuse_bad_input(
             "capability": "crypto:merkle_proof",
             "data": "leaf",
         },
+        ("interceptor", "ast:parse", "x = 1"): {
+            "capability": "ast:parse",
+            "code": "x = 1",
+        },
+        ("interceptor", "ast:audit_syntax", "x = 1"): {
+            "capability": "ast:audit_syntax",
+            "code": "x = 1",
+        },
+        ("interceptor", "ast:detect_banned_calls", "x = 1"): {
+            "capability": "ast:detect_banned_calls",
+            "code": "x = 1",
+        },
+        ("interceptor", "ast:verify_ast_clean", "x = 1"): {
+            "capability": "ast:verify_ast_clean",
+            "code": "x = 1",
+        },
     }
     assert set(st.RETASK_MAP) == {(c, k) for c, k, _ in expected}
     for (caste, cap, target), payload in expected.items():
         res = run(cmd, action="retask", caste=caste, capability=cap, target=target)
         assert res.ok, (caste, cap, res.output)
         assert sent[-1] == ("dispatch_task", {"caste": caste, "payload": payload}), (caste, cap)
+
+    # Per-unit recall and per-unit fail-closed retask.
+    assert run(cmd, action="recall", unit_id="W0").ok
+    assert sent[-1] == ("recall_unit", {"unit_id": "W0"})
+    assert run(cmd, action="recall").ok is False and sent == []
+    res_unit = run(
+        cmd,
+        action="retask",
+        caste="interceptor",
+        unit_id="INT-1",
+        capability="ast:verify_ast_clean",
+        target="x = 1",
+    )
+    assert res_unit.ok
+    assert sent[-1] == (
+        "retask_unit",
+        {"unit_id": "INT-1", "payload": {"capability": "ast:verify_ast_clean", "code": "x = 1"}},
+    )
+
+    # Mission modes: horizons, arxiv, security_audit, and invalid mode refusal.
+    assert run(cmd, action="mission", question="Mars", mode="horizons").ok
+    assert sent[-1] == (
+        "start_harvest_mission",
+        {"question": "Mars", "targets": [{"action": "horizons", "target": "Mars"}]},
+    )
+    assert run(cmd, action="mission", question="JWST", mode="arxiv").ok
+    assert sent[-1] == (
+        "start_harvest_mission",
+        {"question": "JWST", "targets": [{"action": "arxiv", "query": "JWST", "max_results": 6}]},
+    )
+    assert run(cmd, action="mission", mode="security_audit").ok
+    assert sent[-1] == ("run_live_mission", {"mode": "security_audit", "query": ""})
+    assert run(cmd, action="mission", question="Mars", mode="bogus").ok is False and sent == []
 
     for caste, cap, kw in (
         ("harvester", "write_harvest_report", {}),  # listed, no handler branch
@@ -853,3 +911,38 @@ def test_stop_with_count_retires_exactly_that_many(
     assert scale == [{"caste": "harvester", "target_count": 0}]
     assert res.data["retired_count"] == 11
     assert "11" in res.output
+
+
+def test_status_surfaces_security_warrants_and_pending_signoffs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """sentinel_status surfaces security_events, warrants_minted, and pending sign-offs."""
+    from arelis import sentinel_client
+    from arelis.tools import sentinel_tool as st
+    from arelis.ui import overseer_runtime
+
+    snap = _snapshot()
+    snap["metrics"]["security_events"] = 2
+    snap["metrics"]["warrants_minted"] = 14
+    snap["authority"] = {"pending_count": 1}
+    monkeypatch.setattr(sentinel_client, "snapshot", lambda: {"ok": True, "snapshot": snap})
+
+    res = asyncio.run(st.SentinelStatusTool().run())
+    assert res.ok
+    assert "2 security events" in res.output
+    assert "14 warrants" in res.output
+    assert "1 awaiting sign-off" in res.output
+    assert res.data["security_events"] == 2
+    assert res.data["warrants_minted"] == 14
+    assert res.data["authority_pending"] == 1
+
+    buckets = overseer_runtime.build_buckets(
+        [
+            {"unit_id": "SNT-CRY-001", "caste": "cryptarch", "state": "PATROLLING"},
+            {"unit_id": "SNT-INT-001", "caste": "interceptor", "state": "PATROLLING"},
+        ]
+    )
+    rendered = [item for rows in buckets.values() for item in rows]
+    by_id = {r["unit_id"]: r for r in rendered}
+    assert by_id["SNT-CRY-001"]["color"] == "#e040fb"
+    assert by_id["SNT-INT-001"]["color"] == "#00e5ff"

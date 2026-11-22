@@ -308,10 +308,7 @@ def test_overseer_retask_recall_copy_is_plain() -> None:
         Path(__file__).resolve().parents[1] / "docs/sentinels.md"
     ).read_text(encoding="utf-8")
     assert "Not available: the hive cannot give one unit a new job." in hud
-    assert (
-        "Not available: Recall would shrink the whole caste, not just this unit."
-        in hud
-    )
+    assert "Return this unit to patrol." in hud
     assert "fail-closed per-unit retask" not in hud
     assert "caste scale-down is not a per-unit recall" not in hud
     top = docs.split("## When Sentinel is offline")[0]
@@ -319,4 +316,4 @@ def test_overseer_retask_recall_copy_is_plain() -> None:
     assert "caste scale-down" not in top
     assert "dispatch_task path" not in top
     assert "the hive cannot give one unit a new job" in top
-    assert "shrink the whole caste, not just this unit" in top
+    assert "returns only this unit to patrol" in top
