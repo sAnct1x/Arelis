@@ -764,10 +764,12 @@ class WindowChrome:
         menu.addAction(self.act_fullscreen)
         from arelis.i18n import tr
 
-        language = menu.addMenu(tr("Language"))
+        language = QMenu(tr("Language"), menu)
+        menu.addMenu(language)
         for act in self._lang_actions.values():
             language.addAction(act)
-        themes = menu.addMenu(tr("themes"))
+        themes = QMenu(tr("themes"), menu)
+        menu.addMenu(themes)
         for act in self._theme_actions.values():
             themes.addAction(act)
         menu.addSeparator()
