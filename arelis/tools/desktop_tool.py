@@ -138,12 +138,22 @@ class DesktopTool:
         self.pixel_ok = False
 
     async def run(self, **kwargs: Any) -> ToolResult:
-        action = str(kwargs.get("action") or "").strip().lower()
+        raw_action = str(kwargs.get("action") or "").strip().lower().replace("-", "_")
+        pointer_aliases = {
+            "dblclick": "dblclick",
+            "double_click": "dblclick",
+            "doubleclick": "dblclick",
+            "right_click": "right_click",
+            "rightclick": "right_click",
+            "hover": "hover",
+        }
+        pointer_verb = pointer_aliases.get(raw_action, "click")
+        action = "click" if raw_action in pointer_aliases else raw_action
         if action not in _ACTIONS:
             return ToolResult(
                 ok=False,
                 output="Unknown action {!r}. Use: {}.".format(
-                    action, ", ".join(_ACTIONS)
+                    raw_action, ", ".join(_ACTIONS)
                 ),
             )
         target = str(kwargs.get("target") or kwargs.get("url") or "").strip()
@@ -192,6 +202,7 @@ class DesktopTool:
                     x=x,
                     y=y,
                     pixel_ok=self.pixel_ok,
+                    verb=pointer_verb,
                 )
             elif action == "scroll":
                 result = await self.session.scroll(

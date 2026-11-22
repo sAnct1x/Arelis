@@ -40,6 +40,7 @@ _RECEIPT_TOOLS = frozenset(
         "workspace",
         "memory",
         "browser",
+        "desktop",
         "image",
         "vision",
         "look",
@@ -79,11 +80,32 @@ _BROWSER_MUTATE = frozenset(
         "navigate",
         "click",
         "type",
+        "select",
+        "press",
         "relaunch",
         "screenshot",
         "back",
         "forward",
         "reload",
+        "download",
+        "upload",
+        "pdf",
+        "dblclick",
+        "right_click",
+        "drag",
+    }
+)
+_DESKTOP_MUTATE = frozenset(
+    {
+        "open",
+        "focus",
+        "click",
+        "dblclick",
+        "right_click",
+        "type",
+        "press",
+        "hotkey",
+        "screenshot",
     }
 )
 
@@ -120,6 +142,8 @@ def action_receipt(
     if tool == "inbox" and action not in _INBOX_MUTATE:
         return None
     if tool == "browser" and action not in _BROWSER_MUTATE:
+        return None
+    if tool == "desktop" and action not in _DESKTOP_MUTATE:
         return None
 
     ids: list[str] = []
@@ -172,6 +196,15 @@ def action_receipt(
     elif tool == "browser":
         receipt["url"] = str(data.get("url") or args.get("url") or "").strip()[:200]
         receipt["mode"] = str(data.get("mode") or "").strip()[:40]
+    elif tool == "desktop":
+        receipt["title"] = str(
+            data.get("title")
+            or data.get("target")
+            or data.get("label")
+            or args.get("target")
+            or args.get("text")
+            or ""
+        ).strip()[:120]
     elif tool == "image":
         receipt["path"] = str(data.get("path") or "").strip()[:200]
     elif tool == "vision":

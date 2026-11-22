@@ -481,5 +481,96 @@ async def test_turn_execute_pauses_on_desktop_your_turn_and_finishes_on_destruct
     assert awaited_walls == []
 
 
+@pytest.mark.asyncio
+async def test_desktop_hotkey_stops_on_destructive_combos_and_dblclick_works(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """hotkey refuses shift+delete / alt+f4 via YOUR_TURN; dblclick and right_click work."""
+    from arelis.browser.hold import is_paused, set_paused
+    from arelis.desktop.snapshot import DeskRef
+
+    session = DesktopSession()
+    monkeypatch.setattr(session, "_hands", lambda: None)
+    monkeypatch.setattr(
+        "arelis.desktop.session.foreground_title", lambda: "File Explorer"
+    )
+    doubled: list[tuple[float, float]] = []
+    righted: list[tuple[float, float]] = []
+
+    async def fake_dbl(x: float, y: float) -> None:
+        doubled.append((x, y))
+
+    async def fake_right(x: float, y: float) -> None:
+        righted.append((x, y))
+
+    monkeypatch.setattr("arelis.desktop.session.dblclick_xy", fake_dbl)
+    monkeypatch.setattr("arelis.desktop.session.right_click_xy", fake_right)
+
+    set_paused(False)
+    try:
+        del_res = await session.hotkey("shift+delete")
+        assert not del_res.ok
+        assert del_res.data.get("code") == "YOUR_TURN"
+        assert del_res.data.get("wall") == "delete"
+        assert is_paused()
+
+        set_paused(False)
+        f4_res = await session.hotkey("alt+f4")
+        assert not f4_res.ok
+        assert f4_res.data.get("code") == "YOUR_TURN"
+        assert f4_res.data.get("wall") == "delete"
+        assert is_paused()
+    finally:
+        set_paused(False)
+
+    session.refs = {
+        "d1": DeskRef(ref="d1", name="Report.docx", role="listitem", x=40, y=50, w=80, h=20)
+    }
+    tool = DesktopTool(session)
+    res_dbl = await tool.run(action="dblclick", text="Report.docx")
+    assert res_dbl.ok
+    assert doubled == [(40, 50)]
+    assert "Double-clicked Report.docx" in res_dbl.output
+
+    session.refs = {
+        "d1": DeskRef(ref="d1", name="Report.docx", role="listitem", x=40, y=50, w=80, h=20)
+    }
+    res_right = await tool.run(action="right_click", ref="d1")
+    assert res_right.ok
+    assert righted == [(40, 50)]
+    assert "Right-clicked Report.docx" in res_right.output
+
+
+def test_desktop_and_extended_browser_actions_emit_receipts_and_drive_done() -> None:
+    """action_receipt covers desktop mutations and extended browser verbs; format_drive_done formats them."""
+    from arelis.browser.hold import format_drive_done
+    from arelis.core.receipts import action_receipt
+
+    desk_rec = action_receipt(
+        "desktop",
+        ok=True,
+        args={"action": "open", "target": "notepad"},
+        data={"target": "notepad"},
+    )
+    assert desk_rec is not None
+    assert desk_rec["action"] == "desktop.open"
+    assert desk_rec["title"] == "notepad"
+
+    dl_rec = action_receipt(
+        "browser",
+        ok=True,
+        args={"action": "download", "ref": "e12"},
+        data={"path": "outputs/downloads/report.csv", "url": "https://example.com"},
+    )
+    assert dl_rec is not None
+    assert dl_rec["action"] == "browser.download"
+
+    assert format_drive_done("focus", {"target": "Notepad"}) == "focused Notepad"
+    assert format_drive_done("hotkey", {"keys": "ctrl+s"}) == "pressed ctrl+s"
+    assert format_drive_done("dblclick", {"text": "Folder"}) == "double-clicked Folder"
+    assert format_drive_done("download", {}) == "downloaded"
+
+
+
 
 

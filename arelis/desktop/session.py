@@ -11,9 +11,12 @@ from arelis.desktop.aliases import resolve_app
 from arelis.desktop.input import (
     click_xy,
     cursor_pos,
+    dblclick_xy,
+    hover_xy,
     mouse_moved_since,
     press_hotkey,
     press_key,
+    right_click_xy,
     scroll,
     type_text,
 )
@@ -206,10 +209,73 @@ class DesktopSession:
         hands = self._hands()
         if hands is not None:
             return hands
+        wall = self._label_wall(combo)
+        if wall is not None:
+            return wall
         err = await press_hotkey(combo)
         if err:
             return DeskResult(ok=False, output=err)
         return DeskResult(ok=True, output=f"Pressed {combo}.")
+
+    async def dblclick(
+        self,
+        *,
+        ref: str = "",
+        text: str = "",
+        nth: int = 0,
+        x: float | None = None,
+        y: float | None = None,
+        pixel_ok: bool = False,
+    ) -> DeskResult:
+        return await self.click(
+            ref=ref,
+            text=text,
+            nth=nth,
+            x=x,
+            y=y,
+            pixel_ok=pixel_ok,
+            verb="dblclick",
+        )
+
+    async def right_click(
+        self,
+        *,
+        ref: str = "",
+        text: str = "",
+        nth: int = 0,
+        x: float | None = None,
+        y: float | None = None,
+        pixel_ok: bool = False,
+    ) -> DeskResult:
+        return await self.click(
+            ref=ref,
+            text=text,
+            nth=nth,
+            x=x,
+            y=y,
+            pixel_ok=pixel_ok,
+            verb="right_click",
+        )
+
+    async def hover(
+        self,
+        *,
+        ref: str = "",
+        text: str = "",
+        nth: int = 0,
+        x: float | None = None,
+        y: float | None = None,
+        pixel_ok: bool = False,
+    ) -> DeskResult:
+        return await self.click(
+            ref=ref,
+            text=text,
+            nth=nth,
+            x=x,
+            y=y,
+            pixel_ok=pixel_ok,
+            verb="hover",
+        )
 
     async def click(
         self,
@@ -220,21 +286,33 @@ class DesktopSession:
         x: float | None = None,
         y: float | None = None,
         pixel_ok: bool = False,
+        verb: str = "click",
     ) -> DeskResult:
         hands = self._hands()
         if hands is not None:
             return hands
         label = text
+        pointer_fn = {
+            "dblclick": dblclick_xy,
+            "right_click": right_click_xy,
+            "hover": hover_xy,
+        }.get(verb, click_xy)
+        past_verb = {
+            "dblclick": "Double-clicked",
+            "right_click": "Right-clicked",
+            "hover": "Hovered",
+        }.get(verb, "Clicked")
         if x is not None and y is not None:
             if not pixel_ok:
                 from arelis.desktop.pixels import xy_refused
 
                 return DeskResult(ok=False, output=xy_refused(), data={"code": "PIXEL_GATE"})
-            wall = self._label_wall(label)
-            if wall is not None:
-                return wall
-            await click_xy(x, y)
-            return DeskResult(ok=True, output="Clicked.", data={"label": label})
+            if verb != "hover":
+                wall = self._label_wall(label)
+                if wall is not None:
+                    return wall
+            await pointer_fn(x, y)
+            return DeskResult(ok=True, output=f"{past_verb}.", data={"label": label})
         if not self.refs:
             snapped = await self.snapshot()
             if not snapped.ok:
@@ -253,21 +331,25 @@ class DesktopSession:
                 output="No matching control. Snapshot again, or screenshot then vision.",
                 data={"code": YOUR_TURN, "wall": "stuck"},
             )
-        wall = self._label_wall(hit.name)
-        if wall is not None:
-            return wall
-        if hit.is_password:
-            from arelis.browser.hold import set_paused
+        if verb != "hover":
+            wall = self._label_wall(hit.name)
+            if wall is not None:
+                return wall
+            if hit.is_password:
+                from arelis.browser.hold import set_paused
 
-            set_paused(True)
-            return DeskResult(
-                ok=False,
-                output=wall_message("password"),
-                data={"code": "SECRET_FIELD", "wall": "password"},
-            )
-        await click_xy(hit.x, hit.y)
-        self.refs.clear()
-        return DeskResult(ok=True, output=f"Clicked {hit.name}.", data={"label": hit.name})
+                set_paused(True)
+                return DeskResult(
+                    ok=False,
+                    output=wall_message("password"),
+                    data={"code": "SECRET_FIELD", "wall": "password"},
+                )
+        await pointer_fn(hit.x, hit.y)
+        if verb != "hover":
+            self.refs.clear()
+        return DeskResult(
+            ok=True, output=f"{past_verb} {hit.name}.", data={"label": hit.name}
+        )
 
     async def scroll(self, direction: str = "down", *, amount: int = 3) -> DeskResult:
         hands = self._hands()
