@@ -110,13 +110,29 @@ def _send(inputs: list[Any]) -> None:
         raise OSError("SendInput did not deliver every event.")
 
 
-def _key_event(vk: int, *, up: bool = False, unicode_char: str = "") -> Any:
+def _utf16_units(ch: str) -> tuple[int, ...]:
+    """Return 16-bit UTF-16LE code units for a character (surrogate pairs for >U+FFFF)."""
+    raw = ch.encode("utf-16-le")
+    return tuple(int.from_bytes(raw[i : i + 2], "little") for i in range(0, len(raw), 2))
+
+
+def _key_event(
+    vk: int,
+    *,
+    up: bool = False,
+    unicode_char: str = "",
+    scan_unit: int | None = None,
+) -> Any:
     _ctypes, _wintypes, input_cls, _user32 = _win()
     ev = input_cls()
     ev.type = INPUT_KEYBOARD
-    if unicode_char:
+    if scan_unit is not None:
         ev.union.ki.wVk = 0
-        ev.union.ki.wScan = ord(unicode_char)
+        ev.union.ki.wScan = int(scan_unit) & 0xFFFF
+        flags = KEYEVENTF_UNICODE
+    elif unicode_char:
+        ev.union.ki.wVk = 0
+        ev.union.ki.wScan = _utf16_units(unicode_char)[0]
         flags = KEYEVENTF_UNICODE
     else:
         ev.union.ki.wVk = vk
@@ -161,22 +177,36 @@ def _abs_coords(x: float, y: float) -> tuple[int, int]:
     return max(0, min(65535, ax)), max(0, min(65535, ay))
 
 
+_TYPE_CHUNK_CHARS = 32
+
+
 async def type_text(text: str) -> None:
     await cooperative_wait(0.05)
-    events = []
-    for ch in text:
-        if ch == "\n":
-            events.append(_key_event(0x0D, up=False))
-            events.append(_key_event(0x0D, up=True))
-            continue
-        if ch == "\t":
-            events.append(_key_event(0x09, up=False))
-            events.append(_key_event(0x09, up=True))
-            continue
-        events.append(_key_event(0, unicode_char=ch))
-        events.append(_key_event(0, up=True, unicode_char=ch))
-    if events:
-        _send(events)
+    if not text:
+        return
+    for start in range(0, len(text), _TYPE_CHUNK_CHARS):
+        chunk = text[start : start + _TYPE_CHUNK_CHARS]
+        events = []
+        for ch in chunk:
+            if ch == "\r":
+                continue
+            if ch == "\n":
+                events.append(_key_event(0x0D, up=False))
+                events.append(_key_event(0x0D, up=True))
+                continue
+            if ch == "\t":
+                events.append(_key_event(0x09, up=False))
+                events.append(_key_event(0x09, up=True))
+                continue
+            units = _utf16_units(ch)
+            for unit in units:
+                events.append(_key_event(0, up=False, scan_unit=unit))
+            for unit in units:
+                events.append(_key_event(0, up=True, scan_unit=unit))
+        if events:
+            _send(events)
+        if start + _TYPE_CHUNK_CHARS < len(text):
+            await cooperative_wait(0.01)
 
 
 def parse_key(name: str) -> int | None:

@@ -294,6 +294,7 @@ async def test_desktop_session_refreshes_stale_refs_and_pauses_on_walls(
     monkeypatch.setattr(
         "arelis.desktop.session.foreground_title", lambda: "Untitled - Notepad"
     )
+    monkeypatch.setattr("arelis.desktop.session.uia_available", lambda: False)
 
     fresh_refs = {
         "d1": DeskRef(ref="d1", name="File", role="menuitem", x=25, y=15, w=30, h=20),
@@ -569,6 +570,120 @@ def test_desktop_and_extended_browser_actions_emit_receipts_and_drive_done() -> 
     assert format_drive_done("hotkey", {"keys": "ctrl+s"}) == "pressed ctrl+s"
     assert format_drive_done("dblclick", {"text": "Folder"}) == "double-clicked Folder"
     assert format_drive_done("download", {}) == "downloaded"
+
+
+@pytest.mark.asyncio
+async def test_desktop_type_text_chunks_and_encodes_utf16_surrogate_pairs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """type_text splits long strings into 32-char batches and encodes >U+FFFF via UTF-16LE pairs."""
+    import arelis.desktop.input as input_mod
+
+    sent_batches: list[list[tuple[int, int, int]]] = []
+
+    def fake_key_event(
+        vk: int,
+        *,
+        up: bool = False,
+        unicode_char: str = "",
+        scan_unit: int | None = None,
+    ) -> tuple[int, int, int]:
+        unit = (
+            int(scan_unit)
+            if scan_unit is not None
+            else (input_mod._utf16_units(unicode_char)[0] if unicode_char else 0)
+        )
+        return (vk, unit, 1 if up else 0)
+
+    monkeypatch.setattr(input_mod, "_key_event", fake_key_event)
+    monkeypatch.setattr(input_mod, "_send", lambda evs: sent_batches.append(list(evs)))
+
+    # 1. Surrogate pair character (🚀 U+1F680 -> 0xD83D, 0xDE80)
+    units = input_mod._utf16_units("🚀")
+    assert units == (0xD83D, 0xDE80)
+    await input_mod.type_text("A🚀")
+    assert len(sent_batches) == 1
+    assert sent_batches[0] == [
+        (0, ord("A"), 0),
+        (0, ord("A"), 1),
+        (0, 0xD83D, 0),
+        (0, 0xDE80, 0),
+        (0, 0xD83D, 1),
+        (0, 0xDE80, 1),
+    ]
+
+    # 2. Long text (70 chars) is sent in 3 chunks (32, 32, 6)
+    sent_batches.clear()
+    await input_mod.type_text("x" * 70)
+    assert [len(b) // 2 for b in sent_batches] == [32, 32, 6]
+
+
+@pytest.mark.asyncio
+async def test_desktop_auto_snapshot_and_uia_value_and_toggle_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """DeskRef formats non-secret value and toggle state; open/focus/click append a quick snapshot."""
+    from arelis.desktop.snapshot import DeskRef, read_window
+
+    ref_edit = DeskRef(
+        ref="d1",
+        name="Text Editor",
+        role="edit",
+        x=100,
+        y=100,
+        w=300,
+        h=200,
+        value="Hello from Notepad",
+    )
+    ref_chk = DeskRef(
+        ref="d2",
+        name="Word Wrap",
+        role="checkbox",
+        x=50,
+        y=20,
+        w=20,
+        h=20,
+        state="checked",
+    )
+    ref_secret = DeskRef(
+        ref="d3",
+        name="PIN",
+        role="edit",
+        x=50,
+        y=50,
+        w=80,
+        h=20,
+        is_password=True,
+        value="9999",
+    )
+    assert "value='Hello from Notepad'" in ref_edit.line()
+    assert "state=checked" in ref_chk.line()
+    assert "9999" not in ref_secret.line()
+
+    refs = {"d1": ref_edit, "d2": ref_chk, "d3": ref_secret}
+    read_out = read_window(refs)
+    assert "Text Editor: Hello from Notepad" in read_out
+    assert "9999" not in read_out
+
+    session = DesktopSession()
+    monkeypatch.setattr("arelis.desktop.session.uia_available", lambda: True)
+    monkeypatch.setattr(
+        "arelis.desktop.session.foreground_title", lambda: "Untitled - Notepad"
+    )
+    monkeypatch.setattr(
+        "arelis.desktop.session.snapshot_window",
+        lambda: ("\n".join(r.line() for r in refs.values()), dict(refs), None),
+    )
+    monkeypatch.setattr(
+        "arelis.desktop.session.open_app",
+        lambda target, aliases=None: (f"Opened {target}.", None),
+    )
+    opened = await session.open("notepad")
+    assert opened.ok
+    assert opened.data.get("snapshot") is True
+    assert "window: Untitled - Notepad" in opened.output
+    assert "value='Hello from Notepad'" in opened.output
+
 
 
 

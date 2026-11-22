@@ -148,6 +148,23 @@ SNAPSHOT_COLLECT_JS = f"""(focus) => {{
       const r = el.getBoundingClientRect();
       const text = (el.innerText || el.value || el.getAttribute('aria-label')
         || el.getAttribute('placeholder') || el.getAttribute('title') || '').trim().slice(0, 80);
+      const states = [];
+      if (el.checked === true || el.getAttribute('aria-checked') === 'true') {{
+        states.push('checked');
+      }} else if (el.getAttribute('aria-checked') === 'false') {{
+        states.push('unchecked');
+      }}
+      if (el.disabled === true || el.getAttribute('aria-disabled') === 'true') {{
+        states.push('disabled');
+      }}
+      if (el.getAttribute('aria-expanded') === 'true') {{
+        states.push('expanded');
+      }} else if (el.getAttribute('aria-expanded') === 'false') {{
+        states.push('collapsed');
+      }}
+      if (el.getAttribute('aria-selected') === 'true') {{
+        states.push('selected');
+      }}
       return {{
         index: i,
         tag: el.tagName.toLowerCase(),
@@ -157,6 +174,7 @@ SNAPSHOT_COLLECT_JS = f"""(focus) => {{
         text: text,
         href: el.href || '',
         autocomplete: el.getAttribute('autocomplete') || '',
+        state: states.join(','),
         visible: visibleOf(el),
         in_view: r.top < vh && r.bottom > 0 && r.left < vw && r.right > 0,
         region: regionOf(el),

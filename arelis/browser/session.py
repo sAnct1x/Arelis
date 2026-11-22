@@ -302,7 +302,9 @@ class BrowserSession:
         )
         if err is not None:
             return err
-        result = await self._driver.type_text(resolved, text)
+        submit = bool(text) and text.endswith("\n") and "\n" not in text[:-1]
+        clean_text = text[:-1] if submit else text
+        result = await self._driver.type_text(resolved, clean_text)
         if str((result.data or {}).get("code") or "") == "SECRET_FIELD":
             from arelis.browser.hold import set_paused
 
@@ -314,6 +316,17 @@ class BrowserSession:
                 output=f"{result.output.rstrip()}\n\n{wall_message('login')}",
                 data=data,
             )
+        if result.ok and submit:
+            pressed = await self.press("Enter")
+            if pressed.ok:
+                data = dict(result.data or {})
+                data.update(pressed.data or {})
+                data["submitted"] = True
+                result = ActionResult(
+                    ok=True,
+                    output=f"{result.output}\n{pressed.output}",
+                    data=data,
+                )
         return result
 
     async def tabs(
@@ -342,7 +355,20 @@ class BrowserSession:
         )
 
     async def press(self, key: str) -> ActionResult:
-        return await self._driver.press(key)
+        result = await self._driver.press(key)
+        if result.ok and (key or "").strip().lower() in {"enter", "return"}:
+            snap = await self.snapshot(max_chars=1600)
+            if str((snap.data or {}).get("code") or "") == "YOUR_TURN":
+                return snap
+            if snap.ok and snap.output:
+                data = dict(result.data or {})
+                data["snapshot"] = True
+                result = ActionResult(
+                    ok=True,
+                    output=f"{result.output}\n\n{snap.output}",
+                    data=data,
+                )
+        return await self._with_wall(result)
 
     async def select_option(
         self, ref: str, value: str, *, into: str = ""
