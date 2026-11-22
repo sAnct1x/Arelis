@@ -280,17 +280,19 @@ class WindowTurn:
 
     def _on_drive_pause(self) -> None:
         self.thinking.append("drive paused", kind="status")
-        asyncio.run_coroutine_threadsafe(
-            self.bus.publish(Event(EventType.TURN_PAUSE, {})),
-            self.loop,
-        )
+        if self.loop.is_running():
+            asyncio.run_coroutine_threadsafe(
+                self.bus.publish(Event(EventType.TURN_PAUSE, {})),
+                self.loop,
+            )
 
     def _on_drive_resume(self) -> None:
         self.thinking.append("drive resumed", kind="status")
-        asyncio.run_coroutine_threadsafe(
-            self.bus.publish(Event(EventType.TURN_RESUME, {})),
-            self.loop,
-        )
+        if self.loop.is_running():
+            asyncio.run_coroutine_threadsafe(
+                self.bus.publish(Event(EventType.TURN_RESUME, {})),
+                self.loop,
+            )
 
     def _on_busy_watchdog(self) -> None:
         if self._force_quit or self._disposed:
@@ -312,28 +314,33 @@ class WindowTurn:
         stored = self._pending_store.get(confirm_id)
         self._pending_queue = [x for x in self._pending_queue if x.id != confirm_id]
         self._restoring_confirm_ids.discard(confirm_id)
-        asyncio.run_coroutine_threadsafe(
-            self.bus.publish(
-                Event(
-                    EventType.TOOL_CONFIRM_REPLY,
-                    {"id": confirm_id, "decision": decision, "allow_turn": allow_turn},
+        if self.loop.is_running():
+            asyncio.run_coroutine_threadsafe(
+                self.bus.publish(
+                    Event(
+                        EventType.TOOL_CONFIRM_REPLY,
+                        {"id": confirm_id, "decision": decision, "allow_turn": allow_turn},
+                    )
+                ),
+                self.loop,
+            )
+            # When attached to a detached core, also notify its bus (no silent send —
+            # this only carries the human decision).
+            if self.ipc_client is not None:
+                asyncio.run_coroutine_threadsafe(
+                    self.ipc_client.send_confirm_reply(confirm_id, decision),
+                    self.loop,
                 )
-            ),
-            self.loop,
-        )
-        # When attached to a detached core, also notify its bus (no silent send —
-        # this only carries the human decision).
-        if self.ipc_client is not None:
-            asyncio.run_coroutine_threadsafe(
-                self.ipc_client.send_confirm_reply(confirm_id, decision),
-                self.loop,
-            )
-        # Restored / core-parked cards have no live waiter — Allow must send here.
-        if restoring and decision in {"allow", "allow_turn", "allow_always"} and stored is not None:
-            asyncio.run_coroutine_threadsafe(
-                self._execute_restored_confirm(stored),
-                self.loop,
-            )
+            # Restored / core-parked cards have no live waiter — Allow must send here.
+            if (
+                restoring
+                and decision in {"allow", "allow_turn", "allow_always"}
+                and stored is not None
+            ):
+                asyncio.run_coroutine_threadsafe(
+                    self._execute_restored_confirm(stored),
+                    self.loop,
+                )
         elif restoring and decision not in {"allow", "allow_turn", "allow_always"}:
             self.thinking.append("pending send skipped", kind="status")
         self._later(0, self._show_next_pending_confirm)

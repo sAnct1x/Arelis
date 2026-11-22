@@ -220,6 +220,7 @@ class SentinelWindow(QWidget):
         self._scene_pushed: dict | None = None
         self._freeflow = None
         self._hud_pushed: dict | None = None
+        self._hud_counts_pushed: tuple[int, ...] | None = None
         # Dispatches sent from this open Overseer: the inspector names them as
         # a task's origin ("task from Dispatch at ...").
         self._dispatches: list[dict] = []
@@ -447,7 +448,8 @@ class SentinelWindow(QWidget):
                 [], width=max(1, self.width()), height=max(1, self.height())
             )
         self.apply_hud_mask()
-        self._mask_timer.start()
+        if self._view is not None:
+            self._mask_timer.start()
         if sentinel_control.overseer_url():
             self._snap_timer.start()
 
@@ -544,6 +546,17 @@ class SentinelWindow(QWidget):
             if caste in counts:
                 counts[caste] += 1
         total = sum(counts.values())
+        key = (
+            total,
+            counts["warden"],
+            counts["stalker"],
+            counts["harvester"],
+            counts["sanitizer"],
+            counts["tripwire"],
+        )
+        if key == self._hud_counts_pushed:
+            return
+        self._hud_counts_pushed = key
         titles = {
             "units": ("Units", total),
             "warden": ("Warden", counts["warden"]),
@@ -777,7 +790,11 @@ class SentinelWindow(QWidget):
                 # A new list model rebuilds every row delegate, so only on change.
                 root.applyHud(hud)
                 self._hud_pushed = hud
-            if selected_id and hasattr(root, "selectUnit"):
+            if (
+                selected_id
+                and hasattr(root, "selectUnit")
+                and str(root.property("selectedUnitId") or "") != selected_id
+            ):
                 root.selectUnit(selected_id)
         if self._entry_timer.isActive():
             self._particle_paths = overseer_runtime.particle_paths(

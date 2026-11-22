@@ -122,20 +122,31 @@ def hand_model_path() -> Path:
 
 
 def ensure_hand_model(allow_download: bool = True) -> Path | None:
+    import os
+    import threading
+
     dest = hand_model_path()
     if dest.is_file() and dest.stat().st_size > 1000:
         return dest
     if not allow_download:
         return None
     dest.parent.mkdir(parents=True, exist_ok=True)
-    tmp = dest.with_suffix(".part")
+    tmp = dest.with_name(f"{dest.stem}.{os.getpid()}.{threading.get_ident()}.part")
     try:
         urllib.request.urlretrieve(HAND_MODEL_URL, tmp)
         tmp.replace(dest)
     except Exception as exc:
+        if dest.is_file() and dest.stat().st_size > 1000:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return dest
         log.warning("hand landmarker download failed: %s", exc)
-        if tmp.exists():
+        try:
             tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
         return dest if dest.is_file() else None
     return dest if dest.is_file() else None
 

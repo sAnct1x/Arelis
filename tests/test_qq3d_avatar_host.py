@@ -96,9 +96,12 @@ def test_frametime_log_writes_one_gate_line_per_frame(tmp_path, monkeypatch) -> 
     log = tmp_path / "frames.csv"
     monkeypatch.setenv("ARELIS_FRAMETIME_LOG", str(log))
     host = _ready_host(tmp_path, monkeypatch)
-    for _ in range(10):
+    for _ in range(40):
         host.view.update()
-        QTest.qWait(50)
+        host._request()
+        QTest.qWait(100)
+        if host._render._drawn >= 2 and not host._render.busy:
+            break
     host.close()
     host.deleteLater()
     QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)

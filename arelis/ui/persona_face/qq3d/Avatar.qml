@@ -46,11 +46,7 @@ Item {
     property string sceneError: ""
     readonly property string clip: mixer.clip
     // Body clips in the loaded model (balsam Timelines); 0 means the clips did not come through.
-    readonly property int clipCount: {
-        var d = loader.item ? loader.item.data : [], n = 0
-        for (var i = 0; i < d.length; i++) if (d[i] && d[i].keyframeGroups !== undefined) n++
-        return n
-    }
+    property int clipCount: 0
     // False until the mixer has written her first clip pose: a loaded model shows its bind pose
     // (the T-pose) until then, and on a cold start that frame stays up through the pipeline
     // compile stall. She is hidden, and the host is not told she is ready, until she is posed.
@@ -139,6 +135,9 @@ Item {
         return null
     }
     function startFace(model) {
+        var d = model ? model.data : [], n = 0
+        for (var i = 0; i < d.length; i++) if (d[i] && d[i].keyframeGroups !== undefined) n++
+        clipCount = n
         chestBone = findBone(model, "CC_Base_Spine02")
         stripFaceTracks(model)
         face = Face.create(model, {})

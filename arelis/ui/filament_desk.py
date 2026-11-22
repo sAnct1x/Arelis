@@ -920,11 +920,13 @@ class FilamentDesk:
         menu.setObjectName("FilamentMenu")
         from arelis.i18n import tr
 
-        themes = menu.addMenu(tr("themes"))
+        themes = QMenu(tr("themes"), menu)
+        menu.addMenu(themes)
         for act in w._theme_actions.values():
             themes.addAction(act)
         # The same actions as the View menu, which Filament has no bar for.
-        language = menu.addMenu(tr("Language"))
+        language = QMenu(tr("Language"), menu)
+        menu.addMenu(language)
         for act in w._lang_actions.values():
             language.addAction(act)
         menu.addSeparator()
@@ -936,7 +938,8 @@ class FilamentDesk:
         chat.setCheckable(True)
         chat.setChecked(bool(w._filament_chat_open))
         chat.triggered.connect(lambda c=False: self._filament_set_chat_open(bool(c)))
-        desks = menu.addMenu("desks")
+        desks = QMenu("desks", menu)
+        menu.addMenu(desks)
         have = len(filament_row_desks(w, w._filament_home)[0])
         for n, label in ((1, "1 monitor"), (2, "2 monitors"), (3, "3 monitors")):
             act = desks.addAction(label)
