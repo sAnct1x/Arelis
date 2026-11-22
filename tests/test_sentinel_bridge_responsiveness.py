@@ -88,3 +88,92 @@ def test_restart_removes_old_session_token_before_spawning(tmp_path, monkeypatch
     monkeypatch.setattr(sentinel_control, "_spawn", spawn)
     sentinel_control.start()
     assert seen == [False]
+
+
+def test_unchanged_selection_does_not_reselect_on_every_snapshot_poll(qtbot) -> None:
+    """Re-calling selectUnit on every 80 ms poll aborts camera ease mode."""
+    win = SentinelWindow()
+    qtbot.addWidget(win)
+    select_calls: list[str] = []
+
+    class _FakeRoot:
+        def __init__(self) -> None:
+            self._props: dict[str, object] = {
+                "selectedUnitId": "SNT-WRD-001",
+                "cameraDistance": overseer_runtime.DEFAULT_CAMERA_DISTANCE,
+                "cameraTargetX": 0.0,
+                "cameraTargetY": -6.0,
+                "cameraTargetZ": -3.0,
+                "swarmGroupBy": "caste",
+                "swarmSearch": "",
+                "collapsedGroups": [],
+                "logFilter": "all",
+                "logQuery": "",
+                "logRepeats": True,
+            }
+
+        def property(self, name: str):
+            return self._props.get(name)
+
+        def setProperty(self, name: str, value) -> None:
+            self._props[name] = value
+
+        def findChildren(self, *_args):
+            return []
+
+        def applyFrame(self, _payload) -> None:
+            return
+
+        def applyHud(self, _hud) -> None:
+            return
+
+        def selectUnit(self, unit_id: str) -> None:
+            select_calls.append(unit_id)
+            self._props["selectedUnitId"] = unit_id
+
+    root = _FakeRoot()
+    win._scene = type("Scene", (), {"rootObject": lambda _self: root})()
+    snap = {
+        "units": [
+            {"unit_id": "SNT-WRD-001", "caste": "warden", "state": "PATROLLING"},
+        ],
+        "nodes": [],
+    }
+    win.apply_snapshot(snap)
+    win.apply_snapshot(snap)
+    assert select_calls == []
+
+
+def test_native_scene_does_not_start_web_overlay_mask_timer(qtbot, monkeypatch) -> None:
+    """_mask_timer only serves the legacy QWebEngineView fallback."""
+    win = SentinelWindow()
+    qtbot.addWidget(win)
+    fake_scene = type("Scene", (), {"rootObject": lambda _self: None})()
+    monkeypatch.setattr(win, "_ensure_scene", lambda: fake_scene)
+    monkeypatch.setattr(sentinel_control, "overseer_url", lambda: None)
+    win.start_entry_sequence()
+    assert not win._mask_timer.isActive()
+    win._entry_timer.stop()
+
+
+def test_hud_counts_skip_redundant_label_writes_when_unchanged(qtbot) -> None:
+    """Identical unit counts on successive polls must not churn hidden QLabels."""
+    win = SentinelWindow()
+    qtbot.addWidget(win)
+    units = [{"unit_id": "SNT-WRD-001", "caste": "warden", "state": "PATROLLING"}]
+    win.apply_hud_counts(units)
+    assert win._hud_labels["warden"].text() == "Warden 1"
+    writes = 0
+    orig = win._hud_labels["warden"].setText
+
+    def counting_set_text(text: str) -> None:
+        nonlocal writes
+        writes += 1
+        orig(text)
+
+    win._hud_labels["warden"].setText = counting_set_text  # type: ignore[method-assign]
+    win.apply_hud_counts(units)
+    assert writes == 0
+    win.apply_hud_counts([*units, {"unit_id": "SNT-WRD-002", "caste": "warden", "state": "PATROLLING"}])
+    assert writes == 1
+    assert win._hud_labels["warden"].text() == "Warden 2"

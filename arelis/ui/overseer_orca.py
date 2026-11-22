@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+from typing import Any
 
 import numpy as np
 
@@ -76,66 +77,116 @@ def vo_u(
     return n, u
 
 
-def _lp1(lines, line_i, vmax, pref):
-    direction, point = lines[line_i]
-    t = float(np.dot(pref - point, direction))
-    b = 2.0 * float(np.dot(point, direction))
-    c = float(np.dot(point, point)) - vmax * vmax
+def _lp1_scalar(
+    lines: list[tuple[float, float, float, float]],
+    line_i: int,
+    vmax: float,
+    prefx: float,
+    prefy: float,
+) -> tuple[float, float] | None:
+    dx, dy, px, py = lines[line_i]
+    t = (prefx - px) * dx + (prefy - py) * dy
+    b = 2.0 * (px * dx + py * dy)
+    c = (px * px + py * py) - vmax * vmax
     det = b * b - 4.0 * c
     if det < 0.0:
         return None
     sdet = math.sqrt(det)
-    t_left = (-b - sdet) / 2.0
-    t_right = (-b + sdet) / 2.0
+    t_left = (-b - sdet) * 0.5
+    t_right = (-b + sdet) * 0.5
     for j in range(line_i):
-        d2, p2 = lines[j]
-        n2 = np.array([-d2[1], d2[0]])
-        den = float(np.dot(direction, n2))
-        num = float(np.dot(p2 - point, n2))
+        d2x, d2y, p2x, p2y = lines[j]
+        n2x, n2y = -d2y, d2x
+        den = dx * n2x + dy * n2y
+        num = (p2x - px) * n2x + (p2y - py) * n2y
         if abs(den) <= 1e-8:
             if num < -1e-8:
                 return None
             continue
         t_hit = num / den
         if den > 0.0:
-            t_right = min(t_right, t_hit)
+            if t_hit < t_right:
+                t_right = t_hit
         else:
-            t_left = max(t_left, t_hit)
+            if t_hit > t_left:
+                t_left = t_hit
         if t_left > t_right + 1e-8:
             return None
-    t = min(max(t, t_left), t_right)
-    return point + t * direction
+    if t < t_left:
+        t = t_left
+    elif t > t_right:
+        t = t_right
+    return px + t * dx, py + t * dy
+
+
+def _lp2_scalar(
+    lines: list[tuple[float, float, float, float]],
+    prefx: float,
+    prefy: float,
+    vmax: float,
+) -> tuple[float, float, bool]:
+    rx, ry = prefx, prefy
+    sp = math.hypot(rx, ry)
+    if sp > vmax > 0.0:
+        s = vmax / sp
+        rx *= s
+        ry *= s
+    for i, (dx, dy, px, py) in enumerate(lines):
+        if (rx - px) * (-dy) + (ry - py) * dx >= -1e-8:
+            continue
+        cand = _lp1_scalar(lines, i, vmax, prefx, prefy)
+        if cand is None:
+            return rx, ry, False
+        rx, ry = cand
+    return rx, ry, True
+
+
+def _lp3_scalar(
+    lines: list[tuple[float, float, float, float]],
+    prefx: float,
+    prefy: float,
+    vmax: float,
+) -> tuple[float, float]:
+    """Greedy projection when the 2D linear program is infeasible."""
+    rx, ry = prefx, prefy
+    for _ in range(4):
+        for dx, dy, px, py in lines:
+            nx, ny = -dy, dx
+            viol = -((rx - px) * nx + (ry - py) * ny)
+            if viol > 0.0:
+                rx += nx * viol
+                ry += ny * viol
+        sp = math.hypot(rx, ry)
+        if sp > vmax > 0.0:
+            s = vmax / sp
+            rx *= s
+            ry *= s
+    return rx, ry
+
+
+def _lp1(lines, line_i, vmax, pref):
+    slines = [
+        (float(d[0]), float(d[1]), float(p[0]), float(p[1])) for d, p in lines
+    ]
+    res = _lp1_scalar(slines, line_i, float(vmax), float(pref[0]), float(pref[1]))
+    return None if res is None else np.array([res[0], res[1]], dtype=np.float64)
 
 
 def _lp2(lines, pref, vmax):
-    result = pref.copy()
-    sp = math.sqrt(float(np.dot(result, result)))
-    if sp > vmax > 0:
-        result = result * (vmax / sp)
-    for i, (direction, point) in enumerate(lines):
-        n = np.array([-direction[1], direction[0]])
-        if float(np.dot(result - point, n)) >= -1e-8:
-            continue
-        cand = _lp1(lines, i, vmax, pref)
-        if cand is None:
-            return result, False
-        result = cand
-    return result, True
+    slines = [
+        (float(d[0]), float(d[1]), float(p[0]), float(p[1])) for d, p in lines
+    ]
+    rx, ry, ok = _lp2_scalar(slines, float(pref[0]), float(pref[1]), float(vmax))
+    return np.array([rx, ry], dtype=np.float64), ok
 
 
 def _lp3(lines, pref, vmax):
     """Greedy projection when the 2D linear program is infeasible."""
-    result = pref.copy()
-    for _ in range(4):
-        for direction, point in lines:
-            n = np.array([-direction[1], direction[0]])
-            viol = -float(np.dot(result - point, n))
-            if viol > 0.0:
-                result = result + n * viol
-        sp = math.sqrt(float(np.dot(result, result)))
-        if sp > vmax > 0:
-            result = result * (vmax / sp)
-    return result
+    slines = [
+        (float(d[0]), float(d[1]), float(p[0]), float(p[1])) for d, p in lines
+    ]
+    rx, ry = _lp3_scalar(slines, float(pref[0]), float(pref[1]), float(vmax))
+    return np.array([rx, ry], dtype=np.float64)
 
 
 def orca_step(
@@ -303,88 +354,169 @@ class OrcaPairSolver:
         tau=ORCA_TAU,
     ):
         n_agents = len(P)
-        live = np.asarray(live, dtype=bool)
-        self.vmax = vmax
-        self.live = live
+        live_arr = np.asarray(live, dtype=bool)
+        live_list = live_arr.tolist()
+        self.vmax = [max(float(v), 0.05) for v in vmax]
+        self.live = live_arr
+        self._live_list = live_list
         self.n_agents = n_agents
-        # Same scalar cam_basis and pair walk as orca_from_pairs, computed once.
-        self.e1 = [None] * n_agents
-        self.e2 = [None] * n_agents
-        self.fwd = [None] * n_agents
-        for i in range(n_agents):
-            if live[i]:
-                self.e1[i], self.e2[i], self.fwd[i] = cam_basis(P[i], cam_pos)
 
-        cons = [[] for _ in range(n_agents)]
-        for k in range(len(pair_i)):
-            i = int(pair_i[k])
-            j = int(pair_j[k])
-            if not live[i] or not live[j]:
+        p_list = np.asarray(P, dtype=np.float64).tolist()
+        mass_list = [float(m) for m in mass]
+        cx, cy, cz = float(cam_pos[0]), float(cam_pos[1]), float(cam_pos[2])
+
+        # Same scalar cam_basis and pair walk as orca_from_pairs, computed once.
+        basis: list[tuple[float, float, float, float, float, float, float, float, float] | None] = [
+            None
+        ] * n_agents
+        for i in range(n_agents):
+            if not live_list[i]:
                 continue
-            if float(np.dot(P[i] - P[j], P[i] - P[j])) > ORCA_NBR_DIST * ORCA_NBR_DIST:
+            px, py, pz = p_list[i]
+            fx, fy, fz = px - cx, py - cy, pz - cz
+            fl = math.sqrt(fx * fx + fy * fy + fz * fz) + 1e-9
+            fx /= fl
+            fy /= fl
+            fz /= fl
+            if abs(fy) > 0.95:
+                # up = (1, 0, 0); cross(up, f) = (0, -fz, fy)
+                e1x, e1y, e1z = 0.0, -fz, fy
+            else:
+                # up = (0, 1, 0); cross(up, f) = (fz, 0, -fx)
+                e1x, e1y, e1z = fz, 0.0, -fx
+            e1l = math.sqrt(e1x * e1x + e1y * e1y + e1z * e1z) + 1e-9
+            e1x /= e1l
+            e1y /= e1l
+            e1z /= e1l
+            # e2 = cross(f, e1)
+            e2x = fy * e1z - fz * e1y
+            e2y = fz * e1x - fx * e1z
+            e2z = fx * e1y - fy * e1x
+            e2l = math.sqrt(e2x * e2x + e2y * e2y + e2z * e2z) + 1e-9
+            e2x /= e2l
+            e2y /= e2l
+            e2z /= e2l
+            basis[i] = (e1x, e1y, e1z, e2x, e2y, e2z, fx, fy, fz)
+        self._basis = basis
+
+        cons: list[list[tuple[float, int, float, float, float, float]]] = [
+            [] for _ in range(n_agents)
+        ]
+        nbr_dist_sq = ORCA_NBR_DIST * ORCA_NBR_DIST
+        gap_min_f = float(gap_min)
+        inv_tau = 1.0 / max(float(tau), 1e-3)
+        pi_list = pair_i.tolist() if hasattr(pair_i, "tolist") else list(pair_i)
+        pj_list = pair_j.tolist() if hasattr(pair_j, "tolist") else list(pair_j)
+        g_list = gaps.tolist() if hasattr(gaps, "tolist") else list(gaps)
+        n_list = normals.tolist() if hasattr(normals, "tolist") else list(normals)
+        for k in range(len(pi_list)):
+            i = int(pi_list[k])
+            j = int(pj_list[k])
+            if not live_list[i] or not live_list[j]:
                 continue
-            n3 = np.asarray(normals[k], dtype=np.float64)
-            ln = float(np.linalg.norm(n3))
+            pix, piy, piz = p_list[i]
+            pjx, pjy, pjz = p_list[j]
+            ddx, ddy, ddz = pix - pjx, piy - pjy, piz - pjz
+            if ddx * ddx + ddy * ddy + ddz * ddz > nbr_dist_sq:
+                continue
+            nk = n_list[k]
+            nx, ny, nz = float(nk[0]), float(nk[1]), float(nk[2])
+            ln = math.sqrt(nx * nx + ny * ny + nz * nz)
             if ln < 1e-8:
                 continue
-            n3 = n3 / ln
-            rhs_rel = (float(gap_min) - float(gaps[k])) / max(float(tau), 1e-3)
-            if float(gaps[k]) < 0.0:
+            inv_ln = 1.0 / ln
+            nx *= inv_ln
+            ny *= inv_ln
+            nz *= inv_ln
+            gk = float(g_list[k])
+            rhs_rel = (gap_min_f - gk) * inv_tau
+            if gk < 0.0:
                 ri, rj = 0.5, 0.5
-            elif mass[i] < mass[j] - 1e-9:
+            elif mass_list[i] < mass_list[j] - 1e-9:
                 ri, rj = 1.0, 0.0
-            elif mass[i] > mass[j] + 1e-9:
+            elif mass_list[i] > mass_list[j] + 1e-9:
                 ri, rj = 0.0, 1.0
             else:
                 ri, rj = 0.5, 0.5
-            cons[i].append((rhs_rel, j, n3, ri))
-            cons[j].append((rhs_rel, i, -n3, rj))
+            if ri > 0.0:
+                cons[i].append((rhs_rel, j, nx, ny, nz, ri))
+            if rj > 0.0:
+                cons[j].append((rhs_rel, i, -nx, -ny, -nz, rj))
 
-        self.linespec = [None] * n_agents
+        linespec: list[list[tuple[Any, ...]] | None] = [None] * n_agents
         for i in range(n_agents):
-            if not live[i]:
+            b_i = basis[i]
+            if b_i is None:
                 continue
-            e1, e2, fwd = self.e1[i], self.e2[i], self.fwd[i]
-            neigh = [c for c in cons[i] if c[3] > 0.0]
+            e1x, e1y, e1z, e2x, e2y, e2z, fx, fy, fz = b_i
+            neigh = cons[i]
+            if not neigh:
+                linespec[i] = []
+                continue
             neigh.sort(reverse=True)
             specs = []
-            for rhs, j, n3, resp in neigh[:ORCA_MAX_NBR]:
-                n2 = to2(n3, e1, e2)
-                plen = math.sqrt(float(np.dot(n2, n2)))
+            for rhs, j, nx, ny, nz, resp in neigh[:ORCA_MAX_NBR]:
+                n2x = nx * e1x + ny * e1y + nz * e1z
+                n2y = nx * e2x + ny * e2y + nz * e2z
+                plen = math.hypot(n2x, n2y)
                 if plen < 0.15:
                     continue
-                n2 = n2 / plen
-                direction = np.array([n2[1], -n2[0]])
+                inv_plen = 1.0 / plen
+                n2x *= inv_plen
+                n2y *= inv_plen
+                fwd_n3 = fx * nx + fy * ny + fz * nz
                 specs.append(
-                    (rhs, j, n3, resp, n2, plen, direction, float(np.dot(fwd, n3)))
+                    (rhs, j, nx, ny, nz, resp, n2x, n2y, inv_plen, n2y, -n2x, fwd_n3)
                 )
-            self.linespec[i] = specs
+            linespec[i] = specs
+        self.linespec = linespec
 
     def solve(self, V, pref):
-        out = pref.copy()
+        v_list = np.asarray(V, dtype=np.float64).tolist()
+        pref_list = np.asarray(pref, dtype=np.float64).tolist()
+        out_rows = [[0.0, 0.0, 0.0] for _ in range(self.n_agents)]
+        basis = self._basis
+        linespec = self.linespec
+        vmax_list = self.vmax
         for i in range(self.n_agents):
-            if not self.live[i]:
-                out[i] = 0.0
+            b_i = basis[i]
+            if b_i is None:
                 continue
-            e1, e2, fwd = self.e1[i], self.e2[i], self.fwd[i]
-            pref2 = to2(pref[i], e1, e2)
-            fwd_comp = float(np.dot(pref[i], fwd))
-            lines = []
-            specs = self.linespec[i]
+            e1x, e1y, e1z, e2x, e2y, e2z, fx, fy, fz = b_i
+            prx, pry, prz = pref_list[i]
+            pref2x = prx * e1x + pry * e1y + prz * e1z
+            pref2y = prx * e2x + pry * e2y + prz * e2z
+            fwd_comp = prx * fx + pry * fy + prz * fz
+            specs = linespec[i]
+            spd_lim = vmax_list[i]
             if specs:
-                for rhs, j, n3, resp, n2, plen, direction, fwd_n3 in specs:
-                    b = (1.0 - resp) * float(np.dot(V[i], n3)) + resp * (
-                        float(np.dot(V[j], n3)) + rhs
+                vix, viy, viz = v_list[i]
+                lines: list[tuple[float, float, float, float]] = []
+                for (
+                    rhs, j, nx, ny, nz, resp, n2x, n2y, inv_plen, dx, dy, fwd_n3
+                ) in specs:
+                    vjx, vjy, vjz = v_list[j]
+                    b = (1.0 - resp) * (vix * nx + viy * ny + viz * nz) + resp * (
+                        (vjx * nx + vjy * ny + vjz * nz) + rhs
                     )
-                    bound = (b - fwd_comp * fwd_n3) / plen
-                    lines.append((direction, n2 * bound))
-            spd_lim = max(float(self.vmax[i]), 0.05)
-            result, ok = _lp2(lines, pref2, spd_lim)
-            if not ok:
-                result = _lp3(lines, pref2, spd_lim)
-            v3 = result[0] * e1 + result[1] * e2
-            out[i] = v3 + fwd * fwd_comp
-        return out
+                    bound = (b - fwd_comp * fwd_n3) * inv_plen
+                    lines.append((dx, dy, n2x * bound, n2y * bound))
+                rx, ry, ok = _lp2_scalar(lines, pref2x, pref2y, spd_lim)
+                if not ok:
+                    rx, ry = _lp3_scalar(lines, pref2x, pref2y, spd_lim)
+            else:
+                rx, ry = pref2x, pref2y
+                sp = math.hypot(rx, ry)
+                if sp > spd_lim > 0.0:
+                    s = spd_lim / sp
+                    rx *= s
+                    ry *= s
+            out_rows[i] = [
+                rx * e1x + ry * e2x + fx * fwd_comp,
+                rx * e1y + ry * e2y + fy * fwd_comp,
+                rx * e1z + ry * e2z + fz * fwd_comp,
+            ]
+        return np.asarray(out_rows, dtype=np.float64)
 
 
 def orca_from_pairs(
