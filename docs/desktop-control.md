@@ -17,8 +17,10 @@ is not a desktop drive.
 `wait`.
 
 - `open(target=notepad)` launches or focuses. Aliases: notepad,
-  calculator, explorer, paint, snipping tool. Start Menu titles
-  work too. A raw `.exe` path is refused.
+  calculator, explorer, paint, snipping tool, vs code, word, excel,
+  powerpoint, onenote, outlook, acrobat, kindle, spotify, discord,
+  steam, obs, vlc. Start Menu titles work too. A raw `.exe` path is
+  refused.
 - `windows` lists visible titles. `focus` brings one forward.
 - `monitors` lists displays (`1|primary|3840x2160|left`).
 - `screenshot` without a target is the primary monitor. `target=left`
@@ -34,15 +36,18 @@ is not a desktop drive.
   does not invent it. Protected / overlay / fullscreen grabs fail
   out loud. The window is captured from the monitor Windows says
   it is on (not always the primary).
-- `snapshot` ranks named controls in the focused window (`[d1]`…).
-  Named-control click needs UI Automation (`comtypes`). A monitor
-  look never does: that is `screenshot`. If named controls are
+- `snapshot` ranks named controls in the foreground top-level window
+  (`[d1]`…). Named-control click needs UI Automation (`comtypes`). A
+  monitor look never does: that is `screenshot`. If named controls are
   missing, snapshot grabs the screen instead of lecturing a pip
   install.
-- `click(text="7")` or `click(ref=d3)`. `x,y` only after
+- `click(text="7")` or `click(ref=d3)` maps across the full multi-monitor
+  virtual desktop (including negative coordinates on left/upper displays)
+  and refreshes stale control refs automatically. `x,y` only after
   `screenshot` then `vision` this turn. The PNG is a look still:
   deleted after she reads it, unless you asked to save it.
-- `type` into the focused field. Password / PIN / OTP are refused.
+- `type` into the focused field. Password / PIN / OTP pause on the
+  **Arelis Desk** Drive strip (`your turn: sign in`) and wait for **Go**.
 - Checkout / Pay / Empty Recycle Bin / Uninstall / Format stop.
   UAC Yes is refused.
 

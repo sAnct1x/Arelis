@@ -9,18 +9,27 @@ SNAPSHOT_LIMIT = 40
 
 _CONTROL_NAMES = {
     50000: "button",
+    50002: "checkbox",
+    50003: "combo",
     50004: "edit",
     50005: "link",
     50006: "list",
     50007: "listitem",
     50008: "menu",
     50011: "menuitem",
-    50013: "tabitem",
-    50018: "text",
-    50020: "treeitem",
-    50025: "combo",
+    50013: "radiobutton",
+    50015: "slider",
+    50016: "spinner",
+    50018: "tab",
+    50019: "tabitem",
+    50020: "text",
+    50023: "tree",
+    50024: "treeitem",
+    50025: "custom",
     50029: "headeritem",
-    50033: "hyperlink",
+    50030: "document",
+    50031: "splitbutton",
+    50033: "pane",
 }
 
 
@@ -58,6 +67,24 @@ def _uia_client() -> object:
     )
 
 
+def _foreground_root(uia: object) -> object | None:
+    """Bind UI Automation to the foreground top-level HWND, not a leaf control."""
+    try:
+        import ctypes
+
+        hwnd = int(ctypes.windll.user32.GetForegroundWindow() or 0)
+        if hwnd:
+            root = uia.ElementFromHandle(hwnd)  # type: ignore[attr-defined]
+            if root is not None:
+                return root
+    except Exception:
+        pass
+    try:
+        return uia.GetFocusedElement() or uia.GetRootElement()  # type: ignore[attr-defined]
+    except Exception:
+        return None
+
+
 def _walk_uia(limit: int = SNAPSHOT_LIMIT) -> list[DeskRef]:
     from comtypes.gen.UIAutomationClient import (
         TreeScope_Descendants,
@@ -70,10 +97,10 @@ def _walk_uia(limit: int = SNAPSHOT_LIMIT) -> list[DeskRef]:
     )
 
     uia = _uia_client()
-    root = uia.GetFocusedElement() or uia.GetRootElement()
+    root = _foreground_root(uia)
     if root is None:
         return []
-    found = root.FindAll(TreeScope_Descendants, uia.CreateTrueCondition())
+    found = root.FindAll(TreeScope_Descendants, uia.CreateTrueCondition())  # type: ignore[attr-defined]
     count = int(found.Length) if found is not None else 0
     rows: list[DeskRef] = []
     for i in range(min(count, 240)):
@@ -177,7 +204,18 @@ def find_ref(
         return refs[ref]
     needle = (text or "").strip().lower()
     if needle:
-        hits = [r for r in refs.values() if needle in r.name.lower()]
+        exact = [r for r in refs.values() if r.name.lower() == needle]
+        prefix = [
+            r
+            for r in refs.values()
+            if r.name.lower().startswith(needle) and r not in exact
+        ]
+        contain = [
+            r
+            for r in refs.values()
+            if needle in r.name.lower() and r not in exact and r not in prefix
+        ]
+        hits = exact or prefix or contain
         if nth > 0 and len(hits) >= nth:
             return hits[nth - 1]
         return hits[0] if hits else None

@@ -18,6 +18,23 @@ DEFAULT_ALIASES: dict[str, str] = {
     "snip": "snippingtool",
     "snipping tool": "snippingtool",
     "snippingtool": "snippingtool",
+    "wordpad": "write",
+    "vs code": "code",
+    "vscode": "code",
+    "visual studio code": "code",
+    "word": "winword",
+    "excel": "excel",
+    "powerpoint": "powerpnt",
+    "onenote": "onenote",
+    "outlook": "outlook",
+    "acrobat": "acrobat",
+    "adobe": "acrobat",
+    "kindle": "kindle",
+    "spotify": "spotify",
+    "discord": "discord",
+    "steam": "steam",
+    "obs": "obs64",
+    "vlc": "vlc",
 }
 
 _SPOKEN = re.compile(r"\s+")

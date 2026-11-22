@@ -195,3 +195,291 @@ DESK_LOOK_DECLINED = (
 )
 
 
+def test_virtual_desktop_abs_coords_maps_multi_monitor_and_negative_x(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Multi-monitor setups with a left monitor have negative X coordinates."""
+    import types
+
+    import arelis.desktop.input as input_mod
+
+    metrics = {
+        input_mod.SM_XVIRTUALSCREEN: -1920,
+        input_mod.SM_YVIRTUALSCREEN: 0,
+        input_mod.SM_CXVIRTUALSCREEN: 3840,
+        input_mod.SM_CYVIRTUALSCREEN: 1080,
+    }
+    fake_user32 = types.SimpleNamespace(
+        GetSystemMetrics=lambda idx: metrics.get(idx, 0)
+    )
+    monkeypatch.setattr(
+        input_mod, "_win", lambda: (None, None, None, fake_user32)
+    )
+    # Far-left edge of the left monitor (-1920, 0) -> (0, 0)
+    assert input_mod._abs_coords(-1920, 0) == (0, 0)
+    # Primary monitor origin (0, 540) -> midpoint X, midpoint Y
+    ax, ay = input_mod._abs_coords(0, 540)
+    assert 32700 <= ax <= 32800
+    assert 32700 <= ay <= 32800
+    # Far-right edge (1919, 1079) -> (65535, 65535)
+    assert input_mod._abs_coords(1919, 1079) == (65535, 65535)
+
+
+def test_foreground_root_prefers_element_from_handle_over_leaf_focus(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_foreground_root binds to GetForegroundWindow HWND so leaf focus doesn't hide siblings."""
+    import ctypes
+    import types
+
+    import arelis.desktop.snapshot as snap_mod
+
+    hwnd_root = object()
+    leaf_focus = object()
+    seen_hwnds: list[int] = []
+
+    class _FakeUIA:
+        def ElementFromHandle(self, hwnd: int) -> object:
+            seen_hwnds.append(hwnd)
+            return hwnd_root
+
+        def GetFocusedElement(self) -> object:
+            return leaf_focus
+
+        def GetRootElement(self) -> object:
+            return None
+
+    fake_user32 = types.SimpleNamespace(GetForegroundWindow=lambda: 0x1234)
+    monkeypatch.setattr(
+        ctypes, "windll", types.SimpleNamespace(user32=fake_user32), raising=False
+    )
+    root = snap_mod._foreground_root(_FakeUIA())
+    assert root is hwnd_root
+    assert seen_hwnds == [0x1234]
+
+
+def test_find_ref_prefers_exact_and_prefix_over_substring() -> None:
+    """Clicking 'Save' must pick 'Save' over 'Don't Save' even if 'Don't Save' came first."""
+    from arelis.desktop.snapshot import DeskRef, find_ref
+
+    refs = {
+        "d1": DeskRef(ref="d1", name="Don't Save", role="button", x=10, y=10, w=50, h=20),
+        "d2": DeskRef(ref="d2", name="Save As…", role="button", x=70, y=10, w=50, h=20),
+        "d3": DeskRef(ref="d3", name="Save", role="button", x=130, y=10, w=50, h=20),
+    }
+    hit = find_ref(refs, text="Save")
+    assert hit is not None
+    assert hit.ref == "d3"
+    prefix_hit = find_ref({"d1": refs["d1"], "d2": refs["d2"]}, text="Save")
+    assert prefix_hit is not None
+    assert prefix_hit.ref == "d2"
+
+
+@pytest.mark.asyncio
+async def test_desktop_session_refreshes_stale_refs_and_pauses_on_walls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Stale refs auto-refresh on click/type; password or UAC walls set_paused(True)."""
+    from arelis.browser.hold import is_paused, set_paused
+    from arelis.desktop.snapshot import DeskRef
+
+    session = DesktopSession()
+    monkeypatch.setattr(session, "_hands", lambda: None)
+    clicked_coords: list[tuple[float, float]] = []
+
+    async def fake_click_xy(x: float, y: float) -> None:
+        clicked_coords.append((x, y))
+
+    monkeypatch.setattr("arelis.desktop.session.click_xy", fake_click_xy)
+    monkeypatch.setattr(
+        "arelis.desktop.session.foreground_title", lambda: "Untitled - Notepad"
+    )
+
+    fresh_refs = {
+        "d1": DeskRef(ref="d1", name="File", role="menuitem", x=25, y=15, w=30, h=20),
+        "d2": DeskRef(
+            ref="d2",
+            name="Password",
+            role="edit",
+            x=100,
+            y=100,
+            w=120,
+            h=24,
+            is_password=True,
+        ),
+    }
+
+    async def fake_snapshot() -> DeskResult:
+        session.refs = dict(fresh_refs)
+        return DeskResult(ok=True, output="[d1] menuitem 'File'")
+
+    monkeypatch.setattr(session, "snapshot", fake_snapshot)
+
+    # Start with stale refs that lack 'File' -> click should auto-snapshot and find 'File'
+    session.refs = {
+        "d9": DeskRef(ref="d9", name="Old Button", role="button", x=1, y=1, w=10, h=10)
+    }
+    res = await session.click(text="File")
+    assert res.ok
+    assert clicked_coords == [(25, 15)]
+    # Refs are invalidated after a click so the next step sees fresh UI state
+    assert session.refs == {}
+
+    # Typing into a password control sets the pause latch and returns SECRET_FIELD
+    set_paused(False)
+    try:
+        pw_res = await session.type_into("hunter2", ref="d2")
+        assert not pw_res.ok
+        assert pw_res.data.get("code") == "SECRET_FIELD"
+        assert is_paused()
+    finally:
+        set_paused(False)
+
+
+def test_desktop_aliases_resolve_common_windows_apps() -> None:
+    """Common desktop apps resolve cleanly and trigger user_asked_for_desktop."""
+    from arelis.core.preflight import user_asked_for_desktop
+    from arelis.desktop.aliases import resolve_app
+
+    assert resolve_app("VS Code") == ("code", None)
+    assert resolve_app("Excel") == ("excel", None)
+    assert resolve_app("File Explorer") == ("explorer", None)
+    assert user_asked_for_desktop("open VS Code on my computer")
+    assert user_asked_for_desktop("launch Excel")
+    assert user_asked_for_desktop("switch to File Explorer")
+
+
+@pytest.mark.asyncio
+async def test_turn_execute_pauses_on_desktop_your_turn_and_finishes_on_destructive_wall() -> None:
+    """execute_call emits TURN_PAUSE on desktop YOUR_TURN/SECRET_FIELD and finishes on delete/uac."""
+    from types import SimpleNamespace
+
+    from arelis.browser.hold import set_paused
+    from arelis.core.events import EventType
+    from arelis.core.turn_context import TurnContext
+    from arelis.core.turn_execute import execute_call
+    from arelis.tools.base import ToolRegistry, ToolResult
+
+    events: list[tuple[EventType, dict[str, object]]] = []
+    awaited_walls: list[tuple[str, str]] = []
+    finished_texts: list[str] = []
+
+    class _Bus:
+        async def publish(self, ev: object) -> None:
+            events.append((ev.type, dict(ev.payload or {})))  # type: ignore[attr-defined]
+
+    class _FakeDesktopTool:
+        name = "desktop"
+        description = "desk"
+        parameters_schema: dict[str, object] = {"type": "object", "properties": {}}
+        risk = "side_effect"
+
+        def __init__(self, result: ToolResult) -> None:
+            self._result = result
+
+        async def run(self, **_kwargs: object) -> ToolResult:
+            return self._result
+
+    async def _run_case(tool_res: ToolResult) -> bool:
+        events.clear()
+        awaited_walls.clear()
+        finished_texts.clear()
+        reg = ToolRegistry()
+        reg.register(_FakeDesktopTool(tool_res))  # type: ignore[arg-type]
+
+        async def fake_await_your_turn(
+            kind: str, *, tool_name: str = "browser"
+        ) -> None:
+            awaited_walls.append((kind, tool_name))
+            set_paused(False)
+
+        async def fake_finish(
+            text: str, _sources: object, *, streamed: str = "", **_kw: object
+        ) -> None:
+            del streamed
+            finished_texts.append(text)
+
+        loop = SimpleNamespace(
+            bus=_Bus(),
+            tools=reg,
+            memory=SimpleNamespace(messages=[], sink=None),
+            max_rounds=6,
+            tool_output_chars=4000,
+            tools_used=set(),
+            _drive_session=True,
+            _painted="",
+            _look=None,
+            _timer=None,
+            _trace=[],
+            _receipts=[],
+            _expected_tools={"desktop"},
+            _think_off_next=False,
+            _fail_replan_used=False,
+            _await_your_turn=fake_await_your_turn,
+            _finish=fake_finish,
+            _tool_message=lambda n, c: {"role": "tool", "tool_name": n, "content": c},
+        )
+        ctx = TurnContext(text="open notepad and type password", role="fast")
+        ctx.tool_names = {"desktop"}
+        r = SimpleNamespace(
+            text=ctx.text,
+            agent_cfg={},
+            available_all={"desktop"},
+            available={"desktop"},
+            visible={"desktop"},
+            tool_names=ctx.tool_names,
+            sources=ctx.sources,
+            ledger=ctx.ledger,
+            fail_counts=ctx.fail_counts,
+            web_search_ok=ctx.web_search_ok,
+            page_ok=ctx.page_ok,
+            sms_sent=ctx.sms_sent,
+            agenda_created=ctx.agenda_created,
+            chat_tools=[],
+            messages=ctx.messages,
+            sms_draft=None,
+            email_draft=None,
+        )
+        return await execute_call(
+            loop,
+            ctx,
+            r,  # type: ignore[arg-type]
+            "desktop",
+            {"action": "type", "into": "password", "text": "secret"},
+            summary="desktop(action=type)",
+            call_fp="desktop|type",
+            round_i=1,
+            call_i=0,
+            fanout_results=None,
+        )
+
+    # 1. Password field pauses and awaits user Go on the desktop tool
+    ended_pw = await _run_case(
+        ToolResult(
+            ok=False,
+            output="Your turn: I do not type passwords.",
+            data={"code": "SECRET_FIELD", "wall": "password"},
+        )
+    )
+    assert not ended_pw
+    pause_events = [p for t, p in events if t == EventType.TURN_PAUSE]
+    assert len(pause_events) == 1
+    assert pause_events[0]["tool"] == "desktop"
+    assert pause_events[0]["kind"] == "password"
+    assert awaited_walls == [("password", "desktop")]
+
+    # 2. Destructive / UAC wall emits TURN_PAUSE and finishes the turn immediately
+    ended_uac = await _run_case(
+        ToolResult(
+            ok=False,
+            output="Your turn: I never click Yes on User Account Control.",
+            data={"code": "YOUR_TURN", "wall": "uac"},
+        )
+    )
+    assert ended_uac
+    assert finished_texts == ["Your turn: I never click Yes on User Account Control."]
+    assert awaited_walls == []
+
+
+
+

@@ -11,11 +11,14 @@ SNAPSHOT_SCAN = 160
 
 # Keep in sync with SNAPSHOT_STAMP_JS.
 SNAPSHOT_SELECTOR = (
-    'a[href], button, input, textarea, select, '
-    '[role="button"], [role="link"], [role="textbox"], [contenteditable="true"]'
+    'a[href], button, input, textarea, select, summary, '
+    '[role="button"], [role="link"], [role="textbox"], [role="searchbox"], '
+    '[role="combobox"], [role="listbox"], [role="option"], '
+    '[role="menuitem"], [role="tab"], [role="checkbox"], '
+    '[role="radio"], [role="switch"], [contenteditable="true"]'
 )
 
-# Shared collect: light DOM + one shadow root + same-origin iframes.
+# Shared collect: light DOM + recursive shadow roots + same-origin iframes.
 # Keep stamp in the same walk so refs still match.
 _SKIP_NAV_RE = (
     r"^(go to channel|subscribe|sign in|log in|home|shorts|"
@@ -29,23 +32,23 @@ _SKIP_HREF_RE = (
 _SNAPSHOT_WALK_JS = f"""
   const sel = {SNAPSHOT_SELECTOR!r};
   const scan = {SNAPSHOT_SCAN};
-  const collectFrom = (root, into) => {{
-    if (!root || !root.querySelectorAll) return;
+  const collectFrom = (root, into, depth = 0) => {{
+    if (!root || !root.querySelectorAll || depth > 4) return;
     root.querySelectorAll(sel).forEach((el) => into.push(el));
     root.querySelectorAll('*').forEach((el) => {{
       const shadow = el.shadowRoot;
       if (shadow && shadow.querySelectorAll) {{
-        shadow.querySelectorAll(sel).forEach((child) => into.push(child));
+        collectFrom(shadow, into, depth + 1);
       }}
     }});
   }};
   const collectAll = () => {{
     const nodes = [];
-    collectFrom(document, nodes);
+    collectFrom(document, nodes, 0);
     document.querySelectorAll('iframe').forEach((frame) => {{
       try {{
         const doc = frame.contentDocument;
-        if (doc) collectFrom(doc, nodes);
+        if (doc) collectFrom(doc, nodes, 0);
       }} catch (e) {{}}
     }});
     return nodes;
@@ -54,11 +57,12 @@ _SNAPSHOT_WALK_JS = f"""
     const host = el.closest(
       'header, nav, footer, aside, main, [role="banner"], '
       + '[role="navigation"], [role="contentinfo"], '
-      + '[role="complementary"], [role="main"]'
+      + '[role="complementary"], [role="main"], [role="dialog"]'
     );
     if (!host) return 'main';
     const t = (host.tagName || '').toLowerCase();
     const role = (host.getAttribute('role') || '').toLowerCase();
+    if (role === 'dialog') return 'main';
     if (t === 'header' || role === 'banner') return 'header';
     if (t === 'nav' || role === 'navigation') return 'nav';
     if (t === 'footer' || role === 'contentinfo') return 'footer';
@@ -89,6 +93,20 @@ _SNAPSHOT_WALK_JS = f"""
     }}
     return true;
   }};
+  const inViewport = (el) => {{
+    try {{
+      const vh = window.innerHeight || 800;
+      const vw = window.innerWidth || 1200;
+      const r = el.getBoundingClientRect();
+      return (
+        r.width >= 2 && r.height >= 2
+        && r.top < vh && r.bottom > 0
+        && r.left < vw && r.right > 0
+      );
+    }} catch (e) {{
+      return false;
+    }}
+  }};
   const pick = (focus) => {{
     const all = collectAll();
     if ((focus || '') === 'results') {{
@@ -97,7 +115,10 @@ _SNAPSHOT_WALK_JS = f"""
       all.forEach((el) => (isResultLike(el) ? results : rest).push(el));
       return results.concat(rest).slice(0, scan);
     }}
-    return all.slice(0, scan);
+    const inView = [];
+    const outView = [];
+    all.forEach((el) => (inViewport(el) ? inView : outView).push(el));
+    return inView.concat(outView).slice(0, scan);
   }};
 """
 
@@ -126,7 +147,7 @@ SNAPSHOT_COLLECT_JS = f"""(focus) => {{
     nodes: nodes.map((el, i) => {{
       const r = el.getBoundingClientRect();
       const text = (el.innerText || el.value || el.getAttribute('aria-label')
-        || el.getAttribute('placeholder') || '').trim().slice(0, 80);
+        || el.getAttribute('placeholder') || el.getAttribute('title') || '').trim().slice(0, 80);
       return {{
         index: i,
         tag: el.tagName.toLowerCase(),
@@ -149,15 +170,23 @@ SNAPSHOT_STAMP_JS = f"""(payload) => {{
   const focus = (payload && payload.focus) || '';
   const pairs = (payload && payload.pairs) || [];
   const nodes = pick(focus);
-  document.querySelectorAll('[data-arelis-ref]').forEach((el) => {{
-    el.removeAttribute('data-arelis-ref');
-  }});
+  const clearRefs = (root, depth = 0) => {{
+    if (!root || !root.querySelectorAll || depth > 4) return;
+    root.querySelectorAll('[data-arelis-ref]').forEach((el) => {{
+      el.removeAttribute('data-arelis-ref');
+    }});
+    root.querySelectorAll('*').forEach((el) => {{
+      const shadow = el.shadowRoot;
+      if (shadow && shadow.querySelectorAll) {{
+        clearRefs(shadow, depth + 1);
+      }}
+    }});
+  }};
+  clearRefs(document, 0);
   try {{
     document.querySelectorAll('iframe').forEach((frame) => {{
       const doc = frame.contentDocument;
-      if (doc) doc.querySelectorAll('[data-arelis-ref]').forEach((el) => {{
-        el.removeAttribute('data-arelis-ref');
-      }});
+      if (doc) clearRefs(doc, 0);
     }});
   }} catch (e) {{}}
   for (const pair of pairs) {{
@@ -320,18 +349,17 @@ def is_typeable(info: Any) -> bool:
     typ = str(getattr(info, "type", "") or "").lower()
     if typ in {"password", "hidden", "submit", "button", "checkbox", "radio", "file"}:
         return False
-    return tag in {"input", "textarea"} or role == "textbox" or typ in {
-        "search",
-        "text",
-        "email",
-        "url",
-    }
+    return (
+        tag in {"input", "textarea"}
+        or role in {"textbox", "searchbox"}
+        or typ in {"search", "text", "email", "url", "tel", "number"}
+    )
 
 
 def is_select(info: Any) -> bool:
     tag = str(getattr(info, "tag", "") or "").lower()
     role = str(getattr(info, "role", "") or "").lower()
-    return tag == "select" or role == "combobox"
+    return tag == "select" or role in {"combobox", "listbox"}
 
 
 _SKIP_RESULT_LABEL = re.compile(

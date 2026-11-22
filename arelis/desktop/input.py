@@ -15,9 +15,17 @@ INPUT_KEYBOARD = 1
 MOUSEEVENTF_MOVE = 0x0001
 MOUSEEVENTF_LEFTDOWN = 0x0002
 MOUSEEVENTF_LEFTUP = 0x0004
+MOUSEEVENTF_RIGHTDOWN = 0x0008
+MOUSEEVENTF_RIGHTUP = 0x0010
 MOUSEEVENTF_WHEEL = 0x0800
+MOUSEEVENTF_VIRTUALDESK = 0x4000
 MOUSEEVENTF_ABSOLUTE = 0x8000
 WHEEL_DELTA = 120
+
+SM_XVIRTUALSCREEN = 76
+SM_YVIRTUALSCREEN = 77
+SM_CXVIRTUALSCREEN = 78
+SM_CYVIRTUALSCREEN = 79
 
 _VK = {
     "enter": 0x0D,
@@ -138,13 +146,19 @@ def mouse_moved_since(origin: tuple[int, int], *, slack: int = 16) -> bool:
 
 def _abs_coords(x: float, y: float) -> tuple[int, int]:
     _ctypes, _wintypes, _input_cls, user32 = _win()
-    sw = user32.GetSystemMetrics(0)
-    sh = user32.GetSystemMetrics(1)
-    if sw <= 0 or sh <= 0:
+    vx = int(user32.GetSystemMetrics(SM_XVIRTUALSCREEN))
+    vy = int(user32.GetSystemMetrics(SM_YVIRTUALSCREEN))
+    vw = int(user32.GetSystemMetrics(SM_CXVIRTUALSCREEN))
+    vh = int(user32.GetSystemMetrics(SM_CYVIRTUALSCREEN))
+    if vw <= 0 or vh <= 0:
+        vx, vy = 0, 0
+        vw = int(user32.GetSystemMetrics(0))
+        vh = int(user32.GetSystemMetrics(1))
+    if vw <= 0 or vh <= 0:
         return 0, 0
-    ax = int(x * 65535 / max(sw - 1, 1))
-    ay = int(y * 65535 / max(sh - 1, 1))
-    return ax, ay
+    ax = round((float(x) - vx) * 65535 / max(vw - 1, 1))
+    ay = round((float(y) - vy) * 65535 / max(vh - 1, 1))
+    return max(0, min(65535, ax)), max(0, min(65535, ay))
 
 
 async def type_text(text: str) -> None:
@@ -214,7 +228,9 @@ async def click_xy(x: float, y: float) -> None:
     move.type = INPUT_MOUSE
     move.union.mi.dx = ax
     move.union.mi.dy = ay
-    move.union.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE
+    move.union.mi.dwFlags = (
+        MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK
+    )
     down = input_cls()
     down.type = INPUT_MOUSE
     down.union.mi.dwFlags = MOUSEEVENTF_LEFTDOWN
@@ -222,6 +238,53 @@ async def click_xy(x: float, y: float) -> None:
     up.type = INPUT_MOUSE
     up.union.mi.dwFlags = MOUSEEVENTF_LEFTUP
     _send([move, down, up])
+
+
+async def dblclick_xy(x: float, y: float) -> None:
+    await click_xy(x, y)
+    await cooperative_wait(0.04)
+    _ctypes, _wintypes, input_cls, _user32 = _win()
+    down = input_cls()
+    down.type = INPUT_MOUSE
+    down.union.mi.dwFlags = MOUSEEVENTF_LEFTDOWN
+    up = input_cls()
+    up.type = INPUT_MOUSE
+    up.union.mi.dwFlags = MOUSEEVENTF_LEFTUP
+    _send([down, up])
+
+
+async def right_click_xy(x: float, y: float) -> None:
+    await cooperative_wait(0.08)
+    ax, ay = _abs_coords(x, y)
+    _ctypes, _wintypes, input_cls, _user32 = _win()
+    move = input_cls()
+    move.type = INPUT_MOUSE
+    move.union.mi.dx = ax
+    move.union.mi.dy = ay
+    move.union.mi.dwFlags = (
+        MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK
+    )
+    down = input_cls()
+    down.type = INPUT_MOUSE
+    down.union.mi.dwFlags = MOUSEEVENTF_RIGHTDOWN
+    up = input_cls()
+    up.type = INPUT_MOUSE
+    up.union.mi.dwFlags = MOUSEEVENTF_RIGHTUP
+    _send([move, down, up])
+
+
+async def hover_xy(x: float, y: float) -> None:
+    await cooperative_wait(0.05)
+    ax, ay = _abs_coords(x, y)
+    _ctypes, _wintypes, input_cls, _user32 = _win()
+    move = input_cls()
+    move.type = INPUT_MOUSE
+    move.union.mi.dx = ax
+    move.union.mi.dy = ay
+    move.union.mi.dwFlags = (
+        MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK
+    )
+    _send([move])
 
 
 async def scroll(direction: str, *, amount: int = 3) -> None:

@@ -78,16 +78,25 @@ Override per call: `browser=edge`, `browser=firefox`, `private=true`
   `type(who=Mom, into=email)` fills name / phone / email / work_phone
   from `contacts.yaml`. No street address. No memory scrape.
   `find` lists matches without clicking. Password and OTP fields are refused.
-- Snapshot ranks visible controls (light DOM, one shadow root, same-origin
-  iframes). `focus=results` (what search returns)
-  is a short result list, not the footer.
-- `click` hits the target immediately and returns a short snapshot of
-  the page she landed on, so the next step does not start with another
-  snapshot call. A miss restamps once and retries inside the same call.
-  The Drive strip says the label, not `e3`.
+- Snapshot ranks visible controls (light DOM, nested shadow roots, same-origin
+  iframes), prioritizing controls in the current viewport. `focus=results`
+  (what search returns) is a short result list, not the footer.
+- `click` hits the target immediately (across main document and same-origin
+  iframes), follows newly opened popup/`target="_blank"` tabs automatically,
+  and returns a short snapshot of the page she landed on, so the next step
+  does not start with another snapshot call. A miss restamps once and retries
+  inside the same call. The Drive strip says the label, not `e3`.
   `hover` / `dblclick` / `right_click` / `drag` use the same refs.
   `x,y` only after `screenshot` then `vision` this turn,
   not computer-use by default. Walls still apply.
+- `select` supports native `<select>` dropdowns and custom ARIA
+  `role="combobox"` / `role="listbox"` menus.
+- `type` fills standard inputs and falls back to select-all + keyboard
+  insertion on rich-text / `contenteditable` editors. `press` supports
+  single keys (`Enter`, `Escape`, `Tab`, arrows, `Delete`, `F1`–`F12`) and
+  modifier chords (`Control+a`, `Control+Enter`, `Shift+Tab`).
+- `scroll` scrolls the window or automatically targets the active inner
+  scrollable container when the page uses a fixed viewport layout.
 - `wait(seconds)` sleeps. `wait(url=/home)` / `wait(text=…)` /
   `wait(heading=…)` polls the tab (max 8s) then snapshots. No CSS
   selectors. A login URL that bounces to `/home` is a receipt, not

@@ -68,6 +68,9 @@ class DesktopSession:
                 return None
             if mouse_moved_since(self._hands_origin):
                 self._hands_origin = cursor_pos()
+                from arelis.browser.hold import set_paused
+
+                set_paused(True)
                 return DeskResult(
                     ok=False,
                     output=wall_message("hands"),
@@ -88,6 +91,7 @@ class DesktopSession:
         receipt, err = open_app(target, aliases=self.aliases)
         if err:
             return DeskResult(ok=False, output=err)
+        self.refs.clear()
         await cooperative_wait(0.35)
         return DeskResult(ok=True, output=receipt or "Opened.", data={"target": target})
 
@@ -106,6 +110,7 @@ class DesktopSession:
             return DeskResult(ok=False, output=f"No window matching {target!r}.")
         if not focus_window(hit.hwnd):
             return DeskResult(ok=False, output=f"Could not focus {hit.title!r}.")
+        self.refs.clear()
         return DeskResult(ok=True, output=f"Focused {hit.title}.", data={"title": hit.title})
 
     async def snapshot(self) -> DeskResult:
@@ -152,14 +157,24 @@ class DesktopSession:
             return hands
         secret = refuse_secret_type(into=into, name="")
         if secret:
+            from arelis.browser.hold import set_paused
+
+            set_paused(True)
             return DeskResult(
                 ok=False,
                 output=secret,
                 data={"code": "SECRET_FIELD", "wall": "password"},
             )
         target = find_ref(self.refs, ref=ref, text=into)
+        if target is None and (ref or into):
+            snapped = await self.snapshot()
+            if snapped.ok:
+                target = find_ref(self.refs, ref=ref, text=into)
         if target is not None:
             if target.is_password:
+                from arelis.browser.hold import set_paused
+
+                set_paused(True)
                 return DeskResult(
                     ok=False,
                     output=refuse_secret_type(is_password=True) or "",
@@ -225,7 +240,14 @@ class DesktopSession:
             if not snapped.ok:
                 return snapped
         hit = find_ref(self.refs, ref=ref, text=text, nth=nth)
+        if hit is None and self.refs:
+            snapped = await self.snapshot()
+            if snapped.ok:
+                hit = find_ref(self.refs, ref=ref, text=text, nth=nth)
         if hit is None:
+            from arelis.browser.hold import set_paused
+
+            set_paused(True)
             return DeskResult(
                 ok=False,
                 output="No matching control. Snapshot again, or screenshot then vision.",
@@ -235,12 +257,16 @@ class DesktopSession:
         if wall is not None:
             return wall
         if hit.is_password:
+            from arelis.browser.hold import set_paused
+
+            set_paused(True)
             return DeskResult(
                 ok=False,
                 output=wall_message("password"),
                 data={"code": "SECRET_FIELD", "wall": "password"},
             )
         await click_xy(hit.x, hit.y)
+        self.refs.clear()
         return DeskResult(ok=True, output=f"Clicked {hit.name}.", data={"label": hit.name})
 
     async def scroll(self, direction: str = "down", *, amount: int = 3) -> DeskResult:
@@ -333,6 +359,9 @@ class DesktopSession:
 
 
 def _wall_result(hit: Wall) -> DeskResult:
+    from arelis.browser.hold import set_paused
+
+    set_paused(True)
     return DeskResult(
         ok=False,
         output=hit.message,
