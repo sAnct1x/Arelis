@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QApplication
 
 
 def test_lipsync_and_page_console_log_under_the_avatar_prefix(tmp_path, monkeypatch, caplog) -> None:
+    monkeypatch.setenv("ARELIS_AVATAR_ENGINE", "web")
     monkeypatch.setenv("ARELIS_AVATAR_GLB", str(tmp_path / "missing.glb"))
     QApplication.instance() or QApplication([])
     from arelis.ui.persona_face import PersonaPanel

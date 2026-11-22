@@ -47,6 +47,7 @@ QtObject {
     property var _spine: []       // indices in _bones of the uprightBones rotations, base first
     property var _proxies: []
     property var _rotIdx: null    // Map: bone node -> index in _bones of its rotation
+    property var _moved: null     // Set: nodes whose sceneRotation depends on the pose
     readonly property var keepBase: /^CC_Base_(NeckTwist0[12]|Head|FacialBone|JawRoot|.*Eye|Tongue.*|Teeth.*|UpperJaw)$/
 
     function setState(name) { if (_logic) _logic.setState(name); else _pending = name }
@@ -80,6 +81,20 @@ QtObject {
         var rot = new Map()
         for (i = 0; i < bones.length; i++) if (bones[i].prop === "rotation") rot.set(bones[i].node, i)
         _rotIdx = rot
+        var moved = new Set()
+        for (i = 0; i < bones.length; i++) {
+            var nd = bones[i].node
+            for (var n = nd; n; n = n.parent) {
+                if (rot.has(n)) { moved.add(nd); break }
+            }
+            for (var p = nd.parent; p; p = p.parent) {
+                if (moved.has(p)) break
+                for (var a = p; a; a = a.parent) {
+                    if (rot.has(a)) { moved.add(p); break }
+                }
+            }
+        }
+        _moved = moved
         var spine = []
         for (var u = 0; u < uprightBones.length; u++)
             for (i = 0; i < bones.length; i++) if (bones[i].node.objectName === uprightBones[u] && bones[i].prop === "rotation") spine.push(i)
@@ -110,13 +125,9 @@ QtObject {
     // from the nearest node whose scene rotation the pose does not move (read from Qt) on down.
     function sceneRot(node, pose) {
         if (!node) return Qt.quaternion(1, 0, 0, 0)
-        if (!_movedByPose(node)) { var s = node.sceneRotation; return Qt.quaternion(s.scalar, s.x, s.y, s.z) }
+        if (!_moved || !_moved.has(node)) { var s = node.sceneRotation; return Qt.quaternion(s.scalar, s.x, s.y, s.z) }
         var i = _rotIdx.get(node)
         return sceneRot(node.parent, pose).times(i === undefined ? node.rotation : pose[i])
-    }
-    function _movedByPose(node) {
-        for (var n = node; n; n = n.parent) if (_rotIdx.has(n)) return true
-        return false
     }
 
     // Qt 6 hands value types to JS as live references that re-read the property, so a sample has to be copied out

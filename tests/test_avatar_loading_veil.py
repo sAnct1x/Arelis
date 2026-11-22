@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QApplication, QWidget
 
 
 def test_no_model_shows_only_a_theme_tinted_veil(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("ARELIS_AVATAR_ENGINE", "web")
     monkeypatch.setenv("ARELIS_AVATAR_GLB", str(tmp_path / "missing.glb"))
     QApplication.instance() or QApplication([])
     from arelis.ui.persona_face import PersonaPanel
