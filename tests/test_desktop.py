@@ -685,6 +685,122 @@ async def test_desktop_auto_snapshot_and_uia_value_and_toggle_state(
     assert "value='Hello from Notepad'" in opened.output
 
 
+@pytest.mark.asyncio
+async def test_desktop_type_replaces_existing_edit_value_and_submits_trailing_newline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """type_into selects all on non-empty single-line edit controls and submits on trailing newline."""
+    from arelis.desktop.snapshot import DeskRef
+
+    session = DesktopSession()
+    monkeypatch.setattr(session, "_hands", lambda: None)
+    monkeypatch.setattr("arelis.desktop.session.uia_available", lambda: False)
+    events: list[str] = []
+
+    async def fake_click(x: float, y: float) -> None:
+        events.append(f"click:{int(x)},{int(y)}")
+
+    async def fake_hotkey(combo: str) -> str | None:
+        events.append(f"hotkey:{combo}")
+        return None
+
+    async def fake_type(txt: str) -> None:
+        events.append(f"type:{txt}")
+
+    async def fake_press(key: str) -> str | None:
+        events.append(f"press:{key}")
+        return None
+
+    monkeypatch.setattr("arelis.desktop.session.click_xy", fake_click)
+    monkeypatch.setattr("arelis.desktop.session.press_hotkey", fake_hotkey)
+    monkeypatch.setattr("arelis.desktop.session.type_text", fake_type)
+    monkeypatch.setattr("arelis.desktop.session.press_key", fake_press)
+
+    session.refs = {
+        "d1": DeskRef(
+            ref="d1",
+            name="File name:",
+            role="edit",
+            x=120,
+            y=80,
+            w=200,
+            h=24,
+            value="Untitled.txt",
+        )
+    }
+    res = await session.type_into("notes.txt\n", ref="d1")
+    assert res.ok
+    assert res.data.get("submitted") is True
+    assert events == [
+        "click:120,80",
+        "hotkey:ctrl+a",
+        "type:notes.txt",
+        "press:enter",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_desktop_drag_and_window_arrange_and_natural_intent_routing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """DesktopSession supports drag and arrange; preflight routes natural desktop phrases."""
+    from arelis.core.preflight import detect_intents, user_asked_for_desktop
+    from arelis.desktop.snapshot import DeskRef
+    from arelis.desktop.windows import DeskWindow
+
+    session = DesktopSession()
+    monkeypatch.setattr(session, "_hands", lambda: None)
+    monkeypatch.setattr("arelis.desktop.session.uia_available", lambda: False)
+    dragged: list[tuple[float, float, float, float]] = []
+    arranged: list[tuple[int, str]] = []
+
+    async def fake_drag(x1: float, y1: float, x2: float, y2: float) -> None:
+        dragged.append((x1, y1, x2, y2))
+
+    monkeypatch.setattr("arelis.desktop.session.drag_xy", fake_drag)
+    monkeypatch.setattr(
+        "arelis.desktop.session.arrange_window",
+        lambda hwnd, mode: arranged.append((hwnd, mode)) or True,
+    )
+    monkeypatch.setattr(
+        "arelis.desktop.session.match_window",
+        lambda target, rows=None: DeskWindow(hwnd=777, title="Untitled - Notepad", pid=1),
+    )
+    monkeypatch.setattr("arelis.desktop.session.focus_window", lambda hwnd: True)
+
+    session.refs = {
+        "d1": DeskRef(ref="d1", name="Draft.txt", role="listitem", x=20, y=30, w=50, h=20),
+        "d2": DeskRef(ref="d2", name="Archive", role="listitem", x=200, y=300, w=60, h=20),
+    }
+    tool = DesktopTool(session)
+    drag_res = await tool.run(action="drag", ref="d1", to="d2")
+    assert drag_res.ok
+    assert dragged == [(20, 30, 200, 300)]
+    assert "Dragged Draft.txt to Archive" in drag_res.output
+
+    snap_res = await tool.run(action="snap_left", target="notepad")
+    assert snap_res.ok
+    assert arranged == [(777, "snap_left")]
+    assert "Snapped left Untitled - Notepad" in snap_res.output
+
+    # Natural desktop operator phrases trigger user_asked_for_desktop
+    for phrase in (
+        "type hello world into Notepad",
+        "click Save in the active window",
+        "press Ctrl+S",
+        "snap left Notepad",
+        "maximize the window",
+    ):
+        assert user_asked_for_desktop(phrase), phrase
+
+    # Cross-tool browser + desktop ask expects both tools
+    both_hints = detect_intents(
+        "open https://example.com in your browser and type the heading into Notepad"
+    )
+    expected = {t for h in both_hints for t in h.expected_tools}
+    assert {"browser", "desktop"} <= expected
+
+
 
 
 

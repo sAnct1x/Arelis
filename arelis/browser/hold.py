@@ -158,6 +158,15 @@ def format_drive_done(
         return "opened"
     if act == "focus":
         return f"focused {label[:40]}" if label else "focused"
+    if act in {"maximize", "minimize", "restore", "snap_left", "snap_right"}:
+        past = {
+            "maximize": "maximized",
+            "minimize": "minimized",
+            "restore": "restored",
+            "snap_left": "snapped left",
+            "snap_right": "snapped right",
+        }[act]
+        return f"{past} {label[:40]}" if label else past
     if act == "navigate":
         return "opened the page"
     if act == "type":

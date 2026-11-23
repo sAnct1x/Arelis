@@ -102,10 +102,16 @@ _DESKTOP_MUTATE = frozenset(
         "click",
         "dblclick",
         "right_click",
+        "drag",
         "type",
         "press",
         "hotkey",
         "screenshot",
+        "maximize",
+        "minimize",
+        "restore",
+        "snap_left",
+        "snap_right",
     }
 )
 
