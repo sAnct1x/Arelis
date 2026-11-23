@@ -302,5 +302,124 @@ def test_browser_element_state_badges_and_trailing_newline_submit_and_dialog_gua
     asyncio.run(_run())
 
 
+def test_browser_element_value_badges_and_real_playwright_dom_suite() -> None:
+    """ElementInfo formats non-secret value=; real headless Chromium verifies shadow DOM, tables, dialogs."""
+    from arelis.browser.actions import ElementInfo, PlaywrightDriver
+
+    filled = ElementInfo(
+        ref="e10",
+        tag="input",
+        type="text",
+        text="Full Name",
+        value="Ada Lovelace",
+    )
+    assert "value='Ada Lovelace'" in filled.line()
+
+    secret = ElementInfo(
+        ref="e11",
+        tag="input",
+        type="password",
+        text="Password",
+        value="hunter2",
+    )
+    assert "hunter2" not in secret.line()
+
+    async def _run_live() -> None:
+        try:
+            from playwright.async_api import async_playwright
+        except ImportError:
+            return
+        pw = await async_playwright().start()
+        try:
+            try:
+                browser = await pw.chromium.launch(headless=True)
+            except Exception:
+                return
+            context = await browser.new_context()
+            page = await context.new_page()
+            await page.set_content(
+                """<!doctype html>
+<html>
+<head><title>Operator Suite</title></head>
+<body>
+  <h1>Pricing &amp; Controls</h1>
+  <main>
+    <table>
+      <tr><th>Tier</th><th>Price</th></tr>
+      <tr><td>Starter</td><td>$10</td></tr>
+      <tr><td>Pro</td><td>$25</td></tr>
+    </table>
+    <label for="user-city">City</label>
+    <input id="user-city" type="text" value="Boston" />
+    <input id="user-pass" type="password" value="topsecret" />
+    <input id="opt-in" type="checkbox" checked />
+    <div id="shadow-host"></div>
+    <button id="alert-btn" onclick="alert('Blocking Notice'); document.body.dataset.alerted='yes';">
+      Trigger Alert
+    </button>
+  </main>
+  <script>
+    const host = document.getElementById('shadow-host');
+    const root = host.attachShadow({mode: 'open'});
+    const btn = document.createElement('button');
+    btn.textContent = 'Shadow Action';
+    btn.onclick = () => { document.body.dataset.shadowClicked = 'true'; };
+    root.appendChild(btn);
+  </script>
+</body>
+</html>"""
+            )
+            driver = PlaywrightDriver()
+            driver._pw = pw
+            driver._browser = browser
+            driver._context = context
+            driver._page = page
+
+            # 1. Read renders HTML table as Markdown pipe rows
+            read_res = await driver.read()
+            assert read_res.ok
+            assert "| Tier | Price |" in read_res.output
+            assert "| Starter | $10 |" in read_res.output
+            assert "| Pro | $25 |" in read_res.output
+
+            # 2. Snapshot collects shadow DOM button, input label+value, and checkbox state
+            snap_res = await driver.snapshot()
+            assert snap_res.ok
+            assert "'Shadow Action'" in snap_res.output
+            assert "'City' value='Boston'" in snap_res.output
+            assert "topsecret" not in snap_res.output
+            assert "state=checked" in snap_res.output
+
+            # 3. Click the Shadow DOM button by its stamped ref
+            shadow_ref = next(
+                ref
+                for ref, info in driver._refs.items()
+                if info.text == "Shadow Action"
+            )
+            click_shadow = await driver.click(shadow_ref)
+            assert click_shadow.ok
+            shadow_flag = await page.evaluate("() => document.body.dataset.shadowClicked")
+            assert shadow_flag == "true"
+
+            # 4. Click button that fires a native JS alert() -> dialog guard auto-dismisses
+            alert_ref = next(
+                ref
+                for ref, info in driver._refs.items()
+                if info.text == "Trigger Alert"
+            )
+            click_alert = await driver.click(alert_ref)
+            assert click_alert.ok
+            alert_flag = await page.evaluate("() => document.body.dataset.alerted")
+            assert alert_flag == "yes"
+            snap_after_alert = await driver.snapshot()
+            assert "dialog_dismissed: alert: Blocking Notice" in snap_after_alert.output
+
+            await browser.close()
+        finally:
+            await pw.stop()
+
+    asyncio.run(_run_live())
+
+
 
 

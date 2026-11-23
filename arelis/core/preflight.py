@@ -365,17 +365,24 @@ def looks_like_browser_open_ask(text: str) -> bool:
 
 
 _DESKTOP_APPS = (
-    r"notepad|calculator|calc|explorer|file\s+explorer|paint|mspaint|"
+    r"notepad|wordpad|calculator|calc|explorer|file\s+explorer|paint|mspaint|"
     r"snipping\s+tool|spotify|discord|steam|vs\s*code|vscode|"
     r"visual\s+studio\s+code|word|excel|powerpoint|onenote|outlook|"
     r"acrobat|kindle|obs|vlc"
 )
 _DESKTOP = re.compile(
     r"(?i)\b("
-    r"(?:open|launch|start|switch\s+to|focus|bring\s+up)\s+"
+    r"(?:open|launch|start|switch\s+to|focus|bring\s+up|maximize|minimize|"
+    r"snap(?:\s+left|\s+right)?)\s+"
     r"(?:(?:the|my|our)\s+)?(?:" + _DESKTOP_APPS + r")\b|"
-    r"(?:type|write)\s+.{0,48}\s+in\s+(?:(?:the|my)\s+)?notepad|"
-    r"open\s+notepad\s+and\s+(?:write|type)|"
+    r"(?:type|write|paste)\s+.{0,64}\s+(?:in|into)\s+(?:(?:the|my)\s+)?"
+    r"(?:" + _DESKTOP_APPS + r"|(?:active|focused|current|open)\s+window)\b|"
+    r"open\s+(?:" + _DESKTOP_APPS + r")\s+and\s+(?:write|type|click)|"
+    r"(?:click|double[- ]click|right[- ]click|press)\s+.{0,48}\s+in\s+"
+    r"(?:(?:the|my)\s+)?(?:" + _DESKTOP_APPS + r"|(?:active|focused|current|open)\s+window)\b|"
+    r"in\s+(?:(?:the|my)\s+)?(?:active|focused|current)\s+window\b|"
+    r"press\s+(?:ctrl|alt|win)\s*[+-]\s*[a-z0-9]+\b|"
+    r"(?:maximize|minimize|snap\s+(?:left|right))\s+(?:the\s+|this\s+|my\s+)?window\b|"
     r"on\s+(?:my|the)\s+(?:computer|desktop|pc)\b|"
     r"use\s+(?:my|the)\s+(?:computer|desktop)\b"
     r")"
@@ -383,14 +390,18 @@ _DESKTOP = re.compile(
 
 
 def looks_like_desktop_ask(text: str) -> bool:
-    """True for 'open notepad' / 'use the computer', not a browser URL."""
+    """True for 'open notepad' / 'use the computer', not a pure browser URL."""
     raw = text or ""
-    if not _DESKTOP.search(raw):
+    if not first_unnegated(_DESKTOP, raw):
         return False
-    if re.search(r"(?i)\bin\s+(?:your|the|my)\s+browser\b", raw):
-        return False
-    if _URL_TOKEN.search(raw):
-        return False
+    has_named_app = bool(
+        re.search(rf"(?i)\b(?:{_DESKTOP_APPS})\b", raw)
+    )
+    if not has_named_app:
+        if re.search(r"(?i)\bin\s+(?:your|the|my)\s+browser\b", raw):
+            return False
+        if _URL_TOKEN.search(raw):
+            return False
     return True
 
 
@@ -1068,16 +1079,23 @@ def detect_intents(
             )
         )
     elif looks_like_desktop_ask(raw):
+        also_browser = bool(first_unnegated(_BROWSER, raw)) and not looks_like_calendar_open(raw)
         hints.append(
             IntentHint(
                 kind="desktop",
-                expected_tools=("desktop",),
+                expected_tools=("browser", "desktop") if also_browser else ("desktop",),
                 nudge=(
                     "Intent preflight: this message asks to use an app on "
                     "the Windows session. Call desktop(action=open, "
                     "target=notepad), or the app they named, then type / "
-                    "click / press. Do not call browser for a native app. "
-                    "Do not call run_script or a shell. Never start cmd or "
+                    "click / press. "
+                    + (
+                        "They also asked for the browser; use browser for the web "
+                        "step and desktop for the native app. "
+                        if also_browser
+                        else "Do not call browser for a native app. "
+                    )
+                    + "Do not call run_script or a shell. Never start cmd or "
                     "PowerShell. Allow still applies, do not ask "
                     "permission in chat."
                 ),

@@ -41,6 +41,7 @@ class ElementInfo:
     autocomplete: str = ""
     region: str = ""
     state: str = ""
+    value: str = ""
 
     def is_secret_field(self) -> bool:
         if self.type.lower() in _SECRET_INPUT_TYPES:
@@ -66,6 +67,10 @@ class ElementInfo:
             bits.append(self.region)
         if self.text:
             bits.append(repr(self.text[:60]))
+        if self.value and not self.is_secret_field() and self.value != self.text:
+            short_val = " ".join(self.value.split())[:60]
+            if short_val:
+                bits.append(f"value={short_val!r}")
         if self.href:
             bits.append(self.href[:80])
         return " ".join(bits)
@@ -1957,6 +1962,7 @@ class PlaywrightDriver:
                     autocomplete=item.get("autocomplete") or "",
                     region=str(item.get("region") or ""),
                     state=str(item.get("state") or ""),
+                    value=str(item.get("value") or ""),
                 )
                 for item in nodes
             }
@@ -2014,8 +2020,26 @@ class PlaywrightDriver:
     clone.querySelectorAll(
       'script, style, noscript, svg, nav, footer, [hidden], [aria-hidden="true"]'
     ).forEach((el) => el.remove());
+    clone.querySelectorAll('table').forEach((tbl) => {
+      const rows = [];
+      tbl.querySelectorAll('tr').forEach((tr) => {
+        const cells = [];
+        tr.querySelectorAll('th, td').forEach((cell) => {
+          cells.push((cell.innerText || '').replace(/\\s+/g, ' ').trim());
+        });
+        if (cells.some((c) => c.length > 0)) {
+          rows.push('| ' + cells.join(' | ') + ' |');
+        }
+      });
+      if (rows.length > 0) {
+        const pre = document.createElement('div');
+        pre.textContent = '\\n' + rows.join('\\n') + '\\n';
+        tbl.replaceWith(pre);
+      }
+    });
   }
-  const text = ((clone && clone.innerText) || '').replace(/\\u00a0/g, ' ');
+  const text = ((clone && (clone.innerText || clone.textContent)) || '')
+    .replace(/\\u00a0/g, ' ');
   return {
     title: document.title || '',
     url: location.href,

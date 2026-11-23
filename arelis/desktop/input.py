@@ -317,6 +317,45 @@ async def hover_xy(x: float, y: float) -> None:
     _send([move])
 
 
+async def drag_xy(x1: float, y1: float, x2: float, y2: float) -> None:
+    await cooperative_wait(0.08)
+    ax1, ay1 = _abs_coords(x1, y1)
+    ax2, ay2 = _abs_coords(x2, y2)
+    _ctypes, _wintypes, input_cls, _user32 = _win()
+    move1 = input_cls()
+    move1.type = INPUT_MOUSE
+    move1.union.mi.dx = ax1
+    move1.union.mi.dy = ay1
+    move1.union.mi.dwFlags = (
+        MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK
+    )
+    down = input_cls()
+    down.type = INPUT_MOUSE
+    down.union.mi.dwFlags = MOUSEEVENTF_LEFTDOWN
+    _send([move1, down])
+    await cooperative_wait(0.04)
+    mid_x = (ax1 + ax2) // 2
+    mid_y = (ay1 + ay2) // 2
+    move_mid = input_cls()
+    move_mid.type = INPUT_MOUSE
+    move_mid.union.mi.dx = mid_x
+    move_mid.union.mi.dy = mid_y
+    move_mid.union.mi.dwFlags = (
+        MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK
+    )
+    move2 = input_cls()
+    move2.type = INPUT_MOUSE
+    move2.union.mi.dx = ax2
+    move2.union.mi.dy = ay2
+    move2.union.mi.dwFlags = (
+        MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK
+    )
+    up = input_cls()
+    up.type = INPUT_MOUSE
+    up.union.mi.dwFlags = MOUSEEVENTF_LEFTUP
+    _send([move_mid, move2, up])
+
+
 async def scroll(direction: str, *, amount: int = 3) -> None:
     await cooperative_wait(0.05)
     delta = WHEEL_DELTA * max(1, min(abs(int(amount or 3)), 12))

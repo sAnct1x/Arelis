@@ -146,8 +146,34 @@ SNAPSHOT_COLLECT_JS = f"""(focus) => {{
     heading: heading,
     nodes: nodes.map((el, i) => {{
       const r = el.getBoundingClientRect();
-      const text = (el.innerText || el.value || el.getAttribute('aria-label')
-        || el.getAttribute('placeholder') || el.getAttribute('title') || '').trim().slice(0, 80);
+      const tag = el.tagName.toLowerCase();
+      const typ = (el.getAttribute('type') || '').toLowerCase();
+      let labelText = '';
+      if (el.id) {{
+        try {{
+          const lbl = (el.ownerDocument || document).querySelector(
+            'label[for="' + el.id.replace(/"/g, '') + '"]'
+          );
+          if (lbl) labelText = (lbl.innerText || '').trim();
+        }} catch (e) {{}}
+      }}
+      if (!labelText && el.closest) {{
+        const pLbl = el.closest('label');
+        if (pLbl) labelText = (pLbl.innerText || '').trim();
+      }}
+      let val = '';
+      if (tag === 'select' && el.selectedOptions && el.selectedOptions.length > 0) {{
+        val = (el.selectedOptions[0].innerText || el.value || '').trim().slice(0, 60);
+      }} else if (
+        (tag === 'input' || tag === 'textarea') && typ !== 'password' && typ !== 'hidden'
+      ) {{
+        val = String(el.value || '').trim().slice(0, 60);
+      }}
+      const rawText = (
+        el.innerText || el.getAttribute('aria-label') || labelText
+        || el.getAttribute('placeholder') || el.getAttribute('title') || val || ''
+      );
+      const text = rawText.trim().slice(0, 80);
       const states = [];
       if (el.checked === true || el.getAttribute('aria-checked') === 'true') {{
         states.push('checked');
@@ -167,11 +193,12 @@ SNAPSHOT_COLLECT_JS = f"""(focus) => {{
       }}
       return {{
         index: i,
-        tag: el.tagName.toLowerCase(),
+        tag: tag,
         role: el.getAttribute('role') || '',
-        type: (el.getAttribute('type') || '').toLowerCase(),
+        type: typ,
         name: el.getAttribute('name') || '',
         text: text,
+        value: val,
         href: el.href || '',
         autocomplete: el.getAttribute('autocomplete') || '',
         state: states.join(','),

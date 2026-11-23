@@ -102,6 +102,14 @@ def match_reader_window(
     return None
 
 
+def foreground_hwnd() -> int:
+    if sys.platform != "win32":
+        return 0
+    import ctypes
+
+    return int(ctypes.windll.user32.GetForegroundWindow() or 0)
+
+
 def foreground_title() -> str:
     if sys.platform != "win32":
         return ""
@@ -139,3 +147,67 @@ def focus_window(hwnd: int) -> bool:
     if fg_tid and cur_tid and fg_tid != cur_tid:
         user32.AttachThreadInput(cur_tid, fg_tid, False)
     return ok
+
+
+def arrange_window(hwnd: int, layout: str) -> bool:
+    """Maximize, minimize, restore, or snap a window to the left/right half of its monitor."""
+    if sys.platform != "win32" or not hwnd:
+        return False
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.windll.user32
+    mode = (layout or "").strip().lower().replace("-", "_")
+    sw_maximize = 3
+    sw_minimize = 6
+    sw_restore = 9
+    if mode == "maximize":
+        user32.ShowWindow(wintypes.HWND(hwnd), sw_maximize)
+        return True
+    if mode == "minimize":
+        user32.ShowWindow(wintypes.HWND(hwnd), sw_minimize)
+        return True
+    if mode == "restore":
+        user32.ShowWindow(wintypes.HWND(hwnd), sw_restore)
+        return True
+    if mode not in {"snap_left", "snap_right", "left", "right"}:
+        return False
+
+    class _Rect(ctypes.Structure):
+        _fields_ = (
+            ("left", wintypes.LONG),
+            ("top", wintypes.LONG),
+            ("right", wintypes.LONG),
+            ("bottom", wintypes.Bottom if hasattr(wintypes, "Bottom") else wintypes.LONG),
+        )
+
+    class _MonitorInfo(ctypes.Structure):
+        _fields_ = (
+            ("cbSize", wintypes.DWORD),
+            ("rcMonitor", _Rect),
+            ("rcWork", _Rect),
+            ("dwFlags", wintypes.DWORD),
+        )
+
+    user32.ShowWindow(wintypes.HWND(hwnd), sw_restore)
+    monitor_default_to_nearest = 2
+    hmon = user32.MonitorFromWindow(wintypes.HWND(hwnd), monitor_default_to_nearest)
+    info = _MonitorInfo()
+    info.cbSize = ctypes.sizeof(_MonitorInfo)
+    if hmon and user32.GetMonitorInfoW(hmon, ctypes.byref(info)):
+        wx = int(info.rcWork.left)
+        wy = int(info.rcWork.top)
+        ww = int(info.rcWork.right - info.rcWork.left)
+        wh = int(info.rcWork.bottom - info.rcWork.top)
+    else:
+        wx, wy = 0, 0
+        ww = int(user32.GetSystemMetrics(0) or 1920)
+        wh = int(user32.GetSystemMetrics(1) or 1080)
+    if ww <= 0 or wh <= 0:
+        return False
+    half_w = ww // 2
+    x = wx if mode in {"snap_left", "left"} else wx + half_w
+    w = half_w if mode in {"snap_left", "left"} else ww - half_w
+    return bool(
+        user32.MoveWindow(wintypes.HWND(hwnd), x, wy, w, wh, True)
+    )

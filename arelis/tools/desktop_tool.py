@@ -147,6 +147,37 @@ class DesktopTool:
             "rightclick": "right_click",
             "hover": "hover",
         }
+        arrange_aliases = {
+            "maximize": "maximize",
+            "minimize": "minimize",
+            "restore": "restore",
+            "snap_left": "snap_left",
+            "snap_right": "snap_right",
+        }
+        target = str(kwargs.get("target") or kwargs.get("url") or "").strip()
+        if raw_action in arrange_aliases:
+            result = await self.session.arrange(arrange_aliases[raw_action], target=target)
+            return ToolResult(ok=result.ok, output=result.output, data=result.data)
+        if raw_action == "drag":
+            x, y = parse_xy(kwargs)
+            to_x = kwargs.get("to_x")
+            to_y = kwargs.get("to_y")
+            try:
+                tx = float(to_x) if to_x is not None else None
+                ty = float(to_y) if to_y is not None else None
+            except (TypeError, ValueError):
+                tx, ty = None, None
+            result = await self.session.drag(
+                ref=str(kwargs.get("ref") or ""),
+                text=str(kwargs.get("text") or ""),
+                to=str(kwargs.get("to") or kwargs.get("into") or target),
+                x=x,
+                y=y,
+                to_x=tx,
+                to_y=ty,
+                pixel_ok=self.pixel_ok,
+            )
+            return ToolResult(ok=result.ok, output=result.output, data=result.data)
         pointer_verb = pointer_aliases.get(raw_action, "click")
         action = "click" if raw_action in pointer_aliases else raw_action
         if action not in _ACTIONS:
@@ -156,7 +187,6 @@ class DesktopTool:
                     raw_action, ", ".join(_ACTIONS)
                 ),
             )
-        target = str(kwargs.get("target") or kwargs.get("url") or "").strip()
         try:
             if action == "open":
                 result = await self.session.open(target)
@@ -165,7 +195,10 @@ class DesktopTool:
             elif action == "monitors":
                 result = await self.session.monitors()
             elif action == "focus":
-                result = await self.session.focus(target)
+                if target.lower().replace("-", "_") in arrange_aliases:
+                    result = await self.session.arrange(target.lower().replace("-", "_"))
+                else:
+                    result = await self.session.focus(target)
             elif action == "snapshot":
                 result = await self.session.snapshot()
             elif action == "read":
@@ -178,6 +211,7 @@ class DesktopTool:
                     text,
                     into=str(kwargs.get("into") or ""),
                     ref=str(kwargs.get("ref") or ""),
+                    clear=bool(kwargs.get("clear", False)),
                 )
             elif action == "press":
                 key = str(kwargs.get("key") or kwargs.get("text") or "").strip()

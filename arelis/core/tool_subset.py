@@ -120,6 +120,7 @@ SKILL_TOOLS: dict[str, frozenset[str]] = {
     "image_edit": frozenset({"image_edit", "vision"}),
     "vision": frozenset({"vision", "camera", "ocr"}),
     "browser": frozenset({"browser"}),
+    "desktop": frozenset({"desktop"}),
     "research": frozenset(
         {
             "research_report",
