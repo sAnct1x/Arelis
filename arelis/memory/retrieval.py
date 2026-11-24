@@ -98,6 +98,9 @@ _STOPWORDS = frozenset(
         "do",
         "does",
         "did",
+        "have",
+        "has",
+        "had",
         "can",
         "could",
         "would",
@@ -117,6 +120,17 @@ _STOPWORDS = frozenset(
 )
 
 _TOKEN = re.compile(r"[a-z0-9]+")
+_QUESTION_WORDS = ("what", "which", "who", "whom", "whose", "where", "when", "why", "how")
+# A new question starts after "?" or at ", and what ..." / "also how ...".
+# Sentence ends and "!" are not breaks: "Ok. <long ask>" is one ask.
+_SUBQUESTION_SPLIT = re.compile(
+    r"\?+|,?\s+(?:and|also)\s+(?=(?:" + "|".join(_QUESTION_WORDS) + r")\b)",
+    re.IGNORECASE,
+)
+# A sub-question scores alone only if it opens with a question word or has
+# this many content words, so "Ok?" or "Thanks?" cannot match on one word.
+_MIN_PART_WORDS = 3
+_MAX_PARTS = 4
 
 EmbedFn = Callable[[str, list[str]], Awaitable[list[list[float]]]]
 ModelCheckFn = Callable[[], Awaitable[bool]]
@@ -169,21 +183,52 @@ def _token_variants(token: str) -> set[str]:
     return variants
 
 
-def keyword_score(query: str, text: str) -> float:
-    """Fraction of query content tokens that also appear in the memory text."""
-    query_tokens = tokenize_for_match(query)
-    if not query_tokens:
-        return 0.0
+_QueryPart = list[set[str]]
+
+
+def _query_parts(query: str) -> list[_QueryPart]:
+    """The whole ask, then up to ``_MAX_PARTS`` sub-questions, as stem sets.
+
+    A compound ask ("how long are my exposures, and what finder do I have?")
+    is scored per sub-question, as if each were asked alone, so the words of
+    one part do not dilute a fact that answers the other part.
+    """
+    token_sets = [tokenize_for_match(query)]
+    pieces = _SUBQUESTION_SPLIT.split(query)
+    if len(pieces) > 1:
+        for piece in pieces:
+            tokens = tokenize_for_match(piece)
+            if not tokens:
+                continue
+            words = _TOKEN.findall(piece.lower())
+            if len(tokens) < _MIN_PART_WORDS and words[0] not in _QUESTION_WORDS:
+                continue
+            token_sets.append(tokens)
+            if len(token_sets) > _MAX_PARTS:
+                break
+    return [
+        [_token_variants(token) for token in tokens] for tokens in token_sets if tokens
+    ]
+
+
+def _keyword_score_parts(parts: list[_QueryPart], text: str) -> float:
+    """Best fraction of one part's content tokens found in the text."""
     text_tokens = tokenize_for_match(text)
     if not text_tokens:
         return 0.0
     text_variants: set[str] = set()
     for token in text_tokens:
         text_variants.update(_token_variants(token))
-    hits = sum(
-        1 for token in query_tokens if _token_variants(token) & text_variants
-    )
-    return hits / len(query_tokens)
+    best = 0.0
+    for part in parts:
+        hits = sum(1 for variants in part if variants & text_variants)
+        best = max(best, hits / len(part))
+    return best
+
+
+def keyword_score(query: str, text: str) -> float:
+    """Best fraction of the ask's (or one sub-question's) tokens in the text."""
+    return _keyword_score_parts(_query_parts(query), text)
 
 
 def recency_score(
@@ -302,8 +347,9 @@ def score_items(
     """Score every candidate. Embeddings contribute only when the query has one."""
     has_embeddings = query_embedding is not None
     scored: list[ScoredMemory] = []
+    parts = _query_parts(query)
     for item in items:
-        keyword = keyword_score(query, item.text)
+        keyword = _keyword_score_parts(parts, item.text)
         recency = recency_score(item.updated_at, now=now)
         embed = embedding_score(query_embedding, item.embedding)
         scored.append(
@@ -330,19 +376,108 @@ def select_relevant(
     has_embeddings: bool,
     limit: int = MAX_ITEMS,
 ) -> list[MemoryItem]:
-    """Keep items at or above the threshold, then apply the count cap."""
+    """Keep items at or above the threshold, then apply the count cap.
+
+    Near-duplicate rows of one fact take a single slot (the best-scored one).
+    """
     threshold = RELEVANCE_THRESHOLD if has_embeddings else RELEVANCE_THRESHOLD_NO_EMBED
     cap = max(0, min(int(limit), MAX_ITEMS))
     picked: list[MemoryItem] = []
+    picked_keys: list[_DuplicateKey] = []
     for row in scored:
         if row.score < threshold:
             continue
         if not has_embeddings and row.keyword <= 0.0:
             continue
+        key = _duplicate_key(row.item.text)
+        if any(_near_duplicate(key, seen) for seen in picked_keys):
+            continue
         picked.append(row.item)
+        picked_keys.append(key)
         if len(picked) >= cap:
             break
     return picked
+
+
+_NUMBER_WORDS = frozenset(
+    {
+        "zero", "one", "two", "three", "four", "five", "six", "seven", "eight",
+        "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen",
+        "sixteen", "seventeen", "eighteen", "nineteen", "twenty", "thirty",
+        "forty", "fifty", "sixty", "seventy", "eighty", "ninety", "hundred",
+        "thousand", "million", "half", "dozen",
+    }
+)
+_POSSESSIVE = re.compile(r"\b([a-z]+)'s\b")
+# "user's" is the owner; the rest are contractions, not possessives.
+_NOT_OTHER_OWNER = frozenset(
+    {"user", "it", "that", "there", "here", "what", "who", "where", "he", "she", "let"}
+)
+_APOSTROPHES = str.maketrans({"\u2019": "'", "\u2018": "'"})
+_THE_USER = re.compile(r"\bthe\s+user(?:'s)?\b")
+# Words that only say whose fact it is, and filler. Unlike _STOPWORDS,
+# "should", "will" and "not" stay: they change what the fact says.
+_DUPLICATE_SKIP = frozenset(
+    {"i", "me", "my", "mine", "myself", "we", "us", "our", "ours", "you", "your",
+     "yours", "a", "an", "the", "is", "are", "am", "be", "of", "on", "in", "at",
+     "to", "for", "with", "and", "that", "this", "it", "s"}
+)
+# "can't", "cant" and "cannot" are one negation, so each spelling says "not".
+_NEGATION_FORMS = {
+    "cannot": ("can", "not"), "cant": ("can", "not"), "wont": ("will", "not"),
+    "dont": ("do", "not"), "doesnt": ("does", "not"), "didnt": ("did", "not"),
+    "isnt": ("is", "not"), "arent": ("are", "not"), "wasnt": ("was", "not"),
+    "werent": ("were", "not"), "hasnt": ("has", "not"), "havent": ("have", "not"),
+    "shouldnt": ("should", "not"), "couldnt": ("could", "not"),
+    "wouldnt": ("would", "not"),
+}
+
+
+@dataclass(frozen=True, slots=True)
+class _DuplicateKey:
+    words: tuple[str, ...]
+    numbers: frozenset[str]
+    possessives: frozenset[str]
+
+
+def _duplicate_key(text: str) -> _DuplicateKey:
+    lowered = text.lower().translate(_APOSTROPHES)
+    raw = re.sub(r"n't\b", "nt", _THE_USER.sub(" ", lowered))
+    words: list[str] = []
+    for token in _TOKEN.findall(raw):
+        for part in _NEGATION_FORMS.get(token, (token,)):
+            if part in _DUPLICATE_SKIP:
+                continue
+            if len(part) > 3 and part.endswith("s") and not part.endswith("ss"):
+                part = part[:-1]
+            words.append(part)
+    return _DuplicateKey(
+        words=tuple(words),
+        numbers=frozenset(
+            token
+            for token in _TOKEN.findall(lowered)
+            if any(char.isdigit() for char in token) or token in _NUMBER_WORDS
+        ),
+        possessives=frozenset(
+            name
+            for name in _POSSESSIVE.findall(lowered)
+            if name not in _NOT_OTHER_OWNER
+        ),
+    )
+
+
+def _near_duplicate(left: _DuplicateKey, right: _DuplicateKey) -> bool:
+    """Same fact reworded: the same content words in the same order, once
+    owner words ("my", "the user's"), filler, punctuation, hyphens, plurals
+    and "dont" vs "don't" are set aside, and no change of number or of
+    whose thing it is ("sister's"). Any added, swapped or reordered word
+    (least, should, not, Boston to Denver vs Denver to Boston) keeps both."""
+    return (
+        bool(left.words)
+        and left.words == right.words
+        and left.numbers == right.numbers
+        and left.possessives == right.possessives
+    )
 
 
 def _clip_item_text(text: str) -> str:
