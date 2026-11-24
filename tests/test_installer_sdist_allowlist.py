@@ -53,3 +53,33 @@ def test_everything_else_still_installs_binary_only() -> None:
     assert "--require-hashes" in flags
     start = flags.index("--require-hashes")
     assert flags[start : start + 3] == ["--require-hashes", "--only-binary", ":all:"]
+
+
+def test_read_lock_accepts_multi_hash_dependabot_lines_and_rejects_unhashed(
+    monkeypatch, tmp_path
+) -> None:
+    """Dependabot security PRs write wheel + sdist sha256 flags on one line; lock.py --check must accept them while rejecting unpinned or unhashed lines."""
+    import pytest
+
+    sample = (
+        "soupsieve==4.1.3 "
+        "--hash=sha256:7a390d1a57d1ab7bb228531e9b8a750a5ebf87db774e0ef6faeeac057d22a5bf "
+        "--hash=sha256:ccd6470b256394ac44b08b86fd94b30a17d335a5335c8a3d15565f7b03d3c8cf\n"
+    )
+    for folder in ("win-installer", "mac-installer"):
+        spec = importlib.util.spec_from_file_location(
+            f"_lock_{folder}", ROOT.parent / folder / "lock.py"
+        )
+        assert spec and spec.loader
+        lock = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(lock)
+
+        fake_lock = tmp_path / f"{folder}-req.txt"
+        fake_lock.write_text(sample, encoding="utf-8")
+        monkeypatch.setattr(lock, "LOCK_PATH", fake_lock)
+        assert lock.read_lock() == {"soupsieve": "4.1.3"}
+
+        fake_lock.write_text("soupsieve==4.1.3\n", encoding="utf-8")
+        with pytest.raises(SystemExit):
+            lock.read_lock()
+

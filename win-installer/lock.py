@@ -277,7 +277,9 @@ def read_lock() -> dict[str, str]:
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
-        match = re.fullmatch(r"([A-Za-z0-9._-]+)==([^\s]+)\s+--hash=sha256:([0-9a-f]{64})", line)
+        match = re.fullmatch(
+            r"([A-Za-z0-9._-]+)==([^\s]+)(?:\s+--hash=sha256:([0-9a-f]{64}))+", line
+        )
         if not match:
             raise SystemExit(
                 f"{LOCK_PATH.name}:{number}: not a pinned, hashed requirement: {line}"
