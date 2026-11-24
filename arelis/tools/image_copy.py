@@ -83,6 +83,17 @@ def image_progress_line(
 
 def image_confirm_headline(args: dict[str, Any] | None = None) -> str:
     args = args or {}
+    path_set = bool(str(args.get("path") or "").strip())
+    if not path_set:
+        try:
+            from arelis.tools.sdcpp import allow_headline
+
+            pending = allow_headline(args)
+        except Exception:
+            # Confirm copy must still name the action if the download check fails.
+            pending = ""
+        if pending:
+            return pending
     if _truthy(args.get("remove_background")):
         return "cut out the background"
     if str(args.get("outpaint") or "").strip():

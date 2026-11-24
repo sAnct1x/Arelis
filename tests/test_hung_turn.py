@@ -81,6 +81,19 @@ def test_new_turn_after_stop_is_not_killed_by_the_watchdog(arelis_window) -> Non
     assert "Turn ended without a reply" not in window.chat.view.toPlainText()
 
 
+def test_stop_keeps_send_locked_while_chat_comes_back(arelis_window, monkeypatch) -> None:
+    from arelis.tools import gpu_lease
+
+    window = arelis_window()
+    window._set_busy(True)
+    window._on_stop()
+    monkeypatch.setattr(gpu_lease, "_restoring", True)
+    window._on_busy_watchdog()
+    assert window._turn_busy
+    assert window._busy_watchdog.isActive()
+    assert "Turn ended without a reply" not in window.chat.view.toPlainText()
+
+
 class _GatheredLoop:
     def __init__(self, tools: set[str] | None = None) -> None:
         self.tools_used = set(tools or set())

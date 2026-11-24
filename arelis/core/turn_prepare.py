@@ -133,6 +133,7 @@ async def _begin_turn(
     loop._agenda_create_ok = False
     loop._agenda_create_failed = False
     loop._agenda_create_where = ""
+    loop._image_ready_ok = False
     loop._painted = ""
     loop._round_gap = False
     loop.model_started = False

@@ -10,7 +10,9 @@ beside the weights when that file is already there.
 
 The picture file sits in the same directory as the model GGUF. If it is
 missing, it is downloaded there once. Arelis starts llama-server only when
-the chat port is down.
+the chat port is down. Built launch lines include
+``--slot-save-path`` so a picture can save and reload the chat cache.
+A replayed command is left unchanged.
 """
 
 from __future__ import annotations
@@ -75,7 +77,16 @@ _CHUNK = 1024 * 1024
 
 _lock = threading.Lock()
 _proc: subprocess.Popen[bytes] | None = None
+# Command line of the server we stopped or last started. Restore uses this
+# exact list so a restart does not add flags the original launch did not have.
+_saved_args: list[str] | None = None
+# Working folder of that process. A hand-started server may use relative paths.
+_saved_cwd: str | None = None
 Cancel = Callable[[], bool]
+
+# Windows: leave the process outside Arelis's tree and job, like a manual start.
+_DETACHED_PROCESS = 0x00000008
+_CREATE_BREAKAWAY_FROM_JOB = 0x01000000
 
 
 class _MmprojCancelledError(Exception):
@@ -135,7 +146,129 @@ def headroom_on(config: dict[str, Any] | None) -> bool:
     return not (isinstance(lc, dict) and lc.get(HEADROOM_KEY) is False)
 
 
+SLOT_SAVE_FILENAME = "chat.bin"
+# Restore can wait this long. Save is capped separately so a stuck
+# llama-server cannot stall the picture start for a full minute.
+_SLOT_HTTP_TIMEOUT_S = 60.0
+_SLOT_SAVE_TIMEOUT_S = 10.0
+_SLOT_ID_TIMEOUT_S = 2.0
+_saved_slot_id = 0
+
+
+def slot_save_dir() -> Path:
+    """Directory passed to llama-server --slot-save-path, under Arelis data."""
+    from arelis.paths import user_data_dir
+
+    path = user_data_dir() / "cache" / "llama-slots"
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        log.warning("Could not create the llama-server slot folder", exc_info=True)
+    return path
+
+
+def slot_save_file() -> Path:
+    return slot_save_dir() / SLOT_SAVE_FILENAME
+
+
+def clear_slot_file() -> None:
+    """Remove a leftover slot file. Failures are ignored."""
+    path = slot_save_dir() / SLOT_SAVE_FILENAME
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        log.info("Could not remove the saved chat slot file", exc_info=True)
+
+
+def _slot_id(base_url: str, *, timeout: float = _SLOT_ID_TIMEOUT_S) -> int:
+    url = base_url.rstrip("/") + "/slots"
+    try:
+        response = httpx.get(url, timeout=max(0.01, timeout))
+    except httpx.HTTPError:
+        return 0
+    if response.status_code >= 400:
+        return 0
+    body = _json_body(response)
+    if isinstance(body, list):
+        for item in body:
+            if not isinstance(item, dict):
+                continue
+            raw = item.get("id", item.get("id_slot"))
+            if raw is None:
+                continue
+            try:
+                return int(raw)
+            except (TypeError, ValueError):
+                continue
+    return 0
+
+
+def _post_slot_action(
+    base_url: str,
+    slot_id: int,
+    action: str,
+    *,
+    timeout: float = _SLOT_HTTP_TIMEOUT_S,
+) -> bool:
+    url = f"{base_url.rstrip('/')}/slots/{slot_id}?action={action}"
+    try:
+        response = httpx.post(
+            url,
+            json={"filename": SLOT_SAVE_FILENAME},
+            timeout=max(0.01, timeout),
+        )
+    except httpx.HTTPError:
+        log.info("llama-server slot %s is not available", action)
+        return False
+    if response.status_code >= 400:
+        log.info(
+            "llama-server slot %s returned %s",
+            action,
+            response.status_code,
+        )
+        return False
+    return True
+
+
+def save_slot(base_url: str) -> bool:
+    """Save the live chat KV cache. False means the next turn may be cold.
+
+    The whole save is capped at about ten seconds. A timeout or error
+    is a quiet cold turn, not a user-facing failure.
+    """
+    global _saved_slot_id
+    clear_slot_file()
+    started = time.monotonic()
+    slot_id = _slot_id(
+        base_url,
+        timeout=min(_SLOT_ID_TIMEOUT_S, _SLOT_SAVE_TIMEOUT_S),
+    )
+    remaining = _SLOT_SAVE_TIMEOUT_S - (time.monotonic() - started)
+    if remaining <= 0 or not _post_slot_action(
+        base_url, slot_id, "save", timeout=remaining
+    ):
+        clear_slot_file()
+        return False
+    _saved_slot_id = slot_id
+    return True
+
+
+def restore_slot(base_url: str) -> bool:
+    """Reload a saved chat KV cache. Always removes the file afterwards."""
+    global _saved_slot_id
+    path = slot_save_dir() / SLOT_SAVE_FILENAME
+    if not path.is_file():
+        return False
+    slot_id = _saved_slot_id
+    try:
+        return _post_slot_action(base_url, slot_id, "restore")
+    finally:
+        clear_slot_file()
+        _saved_slot_id = 0
+
+
 def llama_server_args(
+
     *,
     binary: str,
     model: str,
@@ -194,6 +327,8 @@ def llama_server_args(
     if headroom_on(config):
         # _spawn also starts the server at below normal priority when --threads is set.
         args.extend(["--threads", str(headroom_threads())])
+    # Slot save/restore after a picture. Replayed commands are not rewritten.
+    args.extend(["--slot-save-path", str(slot_save_dir())])
     args.extend(["--host", host, "--port", str(port)])
     return args
 
@@ -205,6 +340,64 @@ def launch_args_for(config: dict[str, Any] | None) -> list[str] | None:
     except OSError as exc:
         log.warning("Could not build llama-server args: %s", exc)
         return None
+
+
+def restore_args(config: dict[str, Any] | None) -> list[str] | None:
+    """The command we stopped or started, unchanged. Built args only if none."""
+    with _lock:
+        saved = list(_saved_args) if _saved_args else None
+    if saved:
+        return saved
+    return launch_args_for(config)
+
+
+def restore_cwd() -> str | None:
+    """Working folder of the server we stopped or last started, if known."""
+    with _lock:
+        return _saved_cwd
+
+
+def remember_launch(args: list[str] | None, *, cwd: str | None = None) -> None:
+    """Keep a command and working folder for the next restore."""
+    _remember_args(args, cwd=cwd)
+
+
+def _remember_args(args: list[str] | None, *, cwd: str | None = None) -> None:
+    global _saved_args, _saved_cwd
+    if not args:
+        return
+    _saved_args = list(args)
+    _saved_cwd = str(cwd) if cwd else None
+
+
+def _cmdline_for_pid(pid: int) -> list[str] | None:
+    try:
+        import psutil
+    except ImportError:
+        return None
+    try:
+        cmd = psutil.Process(int(pid)).cmdline()
+    except Exception:
+        # The process may already have exited; keep the last saved command.
+        return None
+    if not cmd:
+        return None
+    return [str(part) for part in cmd]
+
+
+def _cwd_for_pid(pid: int) -> str | None:
+    try:
+        import psutil
+    except ImportError:
+        return None
+    try:
+        folder = psutil.Process(int(pid)).cwd()
+    except Exception:
+        # The process may already have exited; keep the last saved folder.
+        return None
+    if not folder:
+        return None
+    return str(folder)
 
 
 def one_token_payload(model: str = "") -> dict[str, Any]:
@@ -236,7 +429,11 @@ def decode_probe_state(status_code: int) -> str:
     return "down"
 
 
-def ensure_server(base_url: str, args: list[str] | None) -> None:
+def ensure_server(
+    base_url: str,
+    args: list[str] | None,
+    config: dict[str, Any] | None = None,
+) -> None:
     """Start llama-server when the chat port is down.
 
     A listening port is not enough. ``/health`` stays ok after the graphics
@@ -256,10 +453,150 @@ def ensure_server(base_url: str, args: list[str] | None) -> None:
         if _proc is not None and _proc.poll() is None:
             proc = _proc
         else:
-            proc = _spawn(args)
+            proc = _spawn(args, cwd=_saved_cwd)
             _proc = proc
-        if not _wait_ready(base_url, proc, _HEALTH_WAIT_S):
-            raise RuntimeError(_SLOW)
+        if _wait_ready(base_url, proc, _HEALTH_WAIT_S):
+            return
+        # A hand-started server with relative paths dies if we replay it
+        # from Arelis's folder. Try the built launch line once.
+        if proc.poll() is not None:
+            fallback = launch_args_for(config)
+            if fallback and list(fallback) != list(args):
+                log.warning(
+                    "Saved llama-server command exited before it was ready; "
+                    "trying the built launch line"
+                )
+                proc = _spawn(fallback, cwd=None)
+                _proc = proc
+                if _wait_ready(base_url, proc, _HEALTH_WAIT_S):
+                    return
+        raise RuntimeError(_SLOW)
+
+
+def stop_server(base_url: str = "http://127.0.0.1:8080", *, timeout_s: float = 8.0) -> bool:
+    """Stop llama-server so another GPU job can use the card.
+
+    Stops the process Arelis started, then a leftover listener on that
+    local port only. Launch arguments are not changed. Returns True if a
+    process was stopped.
+    """
+    stopped = False
+    with _lock:
+        global _proc
+        proc = _proc
+        _proc = None
+        if proc is not None and proc.poll() is None:
+            remembered = _cmdline_for_pid(int(proc.pid))
+            folder = _cwd_for_pid(int(proc.pid))
+            if remembered:
+                _remember_args(remembered, cwd=folder)
+            log.info("Stopping llama-server (pid=%s) to free the GPU", proc.pid)
+            stopped = _terminate_proc(proc, timeout_s=timeout_s) or stopped
+    host, port = _listen(base_url)
+    if host not in {"127.0.0.1", "localhost", "::1"}:
+        return stopped
+    if not _health_ok(base_url):
+        return stopped
+    return _kill_local_port(port) or stopped
+
+
+def start_server_nowait(base_url: str, args: list[str] | None) -> None:
+    """Spawn llama-server if the chat port is down. Do not wait for ready.
+
+    Used when the app is quitting and must not leave chat dead, but also
+    must not block on a full model load.
+    """
+    if not args:
+        return
+    with _lock:
+        if _health_ok(base_url):
+            return
+        global _proc
+        if _proc is not None and _proc.poll() is None:
+            return
+        _proc = _spawn(args, cwd=_saved_cwd)
+
+
+def _terminate_proc(proc: subprocess.Popen[bytes], *, timeout_s: float) -> bool:
+    try:
+        proc.terminate()
+        try:
+            proc.wait(timeout=max(1.0, float(timeout_s)))
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=3)
+    except Exception:
+        log.warning(
+            "Could not stop llama-server pid %s",
+            getattr(proc, "pid", "?"),
+            exc_info=True,
+        )
+        return False
+    return True
+
+
+def _kill_local_port(port: int) -> bool:
+    """Terminate listeners on a loopback port."""
+    if port <= 0 or port > 65535:
+        return False
+    pids = _pids_on_port(port)
+    if not pids:
+        return False
+    self_pid = os.getpid()
+    killed = False
+    for pid in pids:
+        if pid <= 0 or pid == self_pid:
+            continue
+        remembered = _cmdline_for_pid(int(pid))
+        folder = _cwd_for_pid(int(pid))
+        if remembered:
+            _remember_args(remembered, cwd=folder)
+        log.info("Stopping leftover llama-server listener pid=%s port=%s", pid, port)
+        if _terminate_pid(pid):
+            killed = True
+    return killed
+
+
+def _pids_on_port(port: int) -> list[int]:
+    try:
+        import psutil
+    except ImportError:
+        return []
+    pids: list[int] = []
+    try:
+        for conn in psutil.net_connections(kind="tcp"):
+            laddr = getattr(conn, "laddr", None)
+            if laddr is None:
+                continue
+            if int(getattr(laddr, "port", 0) or 0) != int(port):
+                continue
+            status = str(getattr(conn, "status", "") or "").upper()
+            if status not in {"LISTEN", "NONE"}:
+                continue
+            pid = getattr(conn, "pid", None)
+            if pid:
+                pids.append(int(pid))
+    except Exception:
+        log.warning("Could not list listeners on port %s", port, exc_info=True)
+        return []
+    return pids
+
+
+def _terminate_pid(pid: int) -> bool:
+    try:
+        import psutil
+
+        proc = psutil.Process(pid)
+        proc.terminate()
+        try:
+            proc.wait(timeout=8)
+        except psutil.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=3)
+        return True
+    except Exception:
+        log.warning("Could not stop pid %s", pid, exc_info=True)
+        return False
 
 
 def _launch_args_for(config: dict[str, Any]) -> list[str] | None:
@@ -526,31 +863,50 @@ def _log_path() -> Path | None:
         return None
 
 
-def _spawn(args: list[str]) -> subprocess.Popen[bytes]:
+def _spawn(args: list[str], *, cwd: str | None = None) -> subprocess.Popen[bytes]:
     kwargs: dict[str, Any] = {
         "stdin": subprocess.DEVNULL,
         "stdout": subprocess.DEVNULL,
         "stderr": subprocess.STDOUT,
     }
+    if cwd:
+        kwargs["cwd"] = cwd
     handle = None
     log_path = _log_path()
     if log_path is not None:
         handle = log_path.open("ab")
         kwargs["stdout"] = handle
+    breakaway = False
     if sys.platform == "win32":
         no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
         new_group = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
-        flags = no_window | new_group
+        flags = no_window | new_group | _DETACHED_PROCESS | _CREATE_BREAKAWAY_FROM_JOB
         if "--threads" in args:  # only llama_server_args with avatar headroom on adds it
             flags |= getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0x00004000)
         kwargs["creationflags"] = flags
+        breakaway = True
     else:
         kwargs["start_new_session"] = True
+    _remember_args(args, cwd=cwd)
     log.info("Starting llama-server")
     try:
-        return subprocess.Popen(args, **kwargs)
-    except FileNotFoundError as exc:
-        raise RuntimeError(_MISSING_BINARY) from exc
+        try:
+            return subprocess.Popen(args, **kwargs)
+        except FileNotFoundError as exc:
+            raise RuntimeError(_MISSING_BINARY) from exc
+        except OSError:
+            flags = int(kwargs.get("creationflags") or 0)
+            if not breakaway or not (flags & _CREATE_BREAKAWAY_FROM_JOB):
+                raise
+            kwargs["creationflags"] = flags & ~_CREATE_BREAKAWAY_FROM_JOB
+            log.warning(
+                "llama-server could not break away from the job; "
+                "starting without that flag"
+            )
+            try:
+                return subprocess.Popen(args, **kwargs)
+            except FileNotFoundError as exc:
+                raise RuntimeError(_MISSING_BINARY) from exc
     finally:
         if handle is not None:
             handle.close()

@@ -109,6 +109,9 @@ def test_evaluate_confirm_matches_registry() -> None:
 def test_persist_confirm_off_flips_image_toggle(tmp_path, monkeypatch) -> None:
     local = tmp_path / "config.local.yaml"
     monkeypatch.setattr("arelis.config.LOCAL_CONFIG_PATH", local)
+    monkeypatch.setattr(
+        "arelis.tools.sdcpp.download_needs_allow", lambda config=None: False
+    )
 
     class _Loop:
         confirm_image = True
@@ -316,3 +319,21 @@ async def test_model_send_email_still_confirms_and_locks_the_draft(
     assert "Stuck in traffic" in card
     assert "Totally different" not in card
     assert "Model invention" not in card
+
+
+def test_first_use_download_pauses_even_when_confirm_image_is_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "arelis.tools.policy._sdcpp_download_pause", lambda args=None: True
+    )
+    assert evaluate_confirm("image", {}, confirm_image=False) is True
+    assert evaluate_confirm("image", {}, confirm_image=False, asked=True) is True
+
+
+def test_image_card_detail_names_no_backend() -> None:
+    from arelis.tools.policy import describe_call
+
+    card = describe_call("image", {"prompt": "a red fox"})
+    assert "ComfyUI" not in card
+    assert "Prompt: a red fox" in card

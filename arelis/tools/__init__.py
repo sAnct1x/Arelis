@@ -477,6 +477,8 @@ def build_tool_registry(
                 cfg=float(image_cfg.get("cfg") or 7.0),
                 sampler=str(image_cfg.get("sampler") or "euler"),
                 default_n=int(image_cfg.get("n") or 1),
+                backend=str(image_cfg.get("backend") or "sdcpp"),
+                config=config,
             )
         )
     # Deterministic pixel work: no model, no GPU, no network. Registered even

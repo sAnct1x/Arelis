@@ -429,6 +429,41 @@ class SettingsDialog(QDialog):
         win_form.addRow("Research", self.research_model)
         win_form.addRow("Vision fallback", self.vision_model)
         win_form.addRow(self._models_note)
+
+        pictures_h = QLabel("Pictures")
+        pictures_h.setObjectName("SettingsSection")
+        self.image_backend = QComboBox()
+        self.image_backend.addItem(
+            "Built-in (FLUX.2 klein 4B, local)", "sdcpp"
+        )
+        self.image_backend.addItem(
+            "ComfyUI (if you already have it)", "comfy"
+        )
+        self.image_backend.setAccessibleName("Picture backend")
+        current_backend = "sdcpp"
+        try:
+            from arelis.tools.sdcpp import resolve_backend
+
+            image_cfg = (config.get("tools") or {}).get("image") or {}
+            current_backend = resolve_backend(
+                str((image_cfg or {}).get("backend") or "sdcpp")
+            )
+        except Exception:
+            # A bad config value must not keep Settings from opening.
+            current_backend = "sdcpp"
+        index = self.image_backend.findData(current_backend)
+        if index >= 0:
+            self.image_backend.setCurrentIndex(index)
+        self._image_backend_note = QLabel(
+            "Pictures use the built-in tool by default. Chat pauses while a "
+            "picture is made, then starts again. Choose ComfyUI only if you "
+            "already run it."
+        )
+        self._image_backend_note.setObjectName("SettingsHint")
+        self._image_backend_note.setWordWrap(True)
+        win_form.addRow(pictures_h)
+        win_form.addRow("Pictures", self.image_backend)
+        win_form.addRow(self._image_backend_note)
         tabs.addTab(window, "window")
 
         # --- Allow ---
@@ -1537,6 +1572,11 @@ class SettingsDialog(QDialog):
                 "fast": str(self.fast_model.currentData() or ""),
                 "research": str(self.research_model.currentData() or ""),
                 "vision": str(self.vision_model.currentData() or ""),
+            },
+            "tools": {
+                "image": {
+                    "backend": str(self.image_backend.currentData() or "sdcpp"),
+                }
             },
         }
 

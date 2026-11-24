@@ -78,6 +78,13 @@ def _flush_pending_writes(
     from arelis.sentinel_control import stop as stop_sentinel
 
     stop_sentinel(timeout_s=max(0.2, min(1.5, deadline - time.monotonic())))
+    from arelis.tools.gpu_lease import release_on_quit
+
+    # Always try, even if the leftover budget is gone: do not leave chat dead.
+    try:
+        release_on_quit()
+    except Exception:
+        log.warning("Image GPU lease release on quit failed", exc_info=True)
     leftover = max(0.0, deadline - time.monotonic())
     if leftover <= 0:
         return
@@ -710,6 +717,9 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
 
     async def _startup_models() -> None:
         try:
+            from arelis.tools.gpu_lease import recover_paused_server
+
+            await asyncio.to_thread(recover_paused_server, config)
             await run_model_preflight(bus, router.provider, config.get("models"))
             await run_model_warmup(
                 bus, router, prefix=prefix_warmup_for(config, tools)

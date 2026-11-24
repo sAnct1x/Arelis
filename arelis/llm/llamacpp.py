@@ -843,6 +843,9 @@ class LlamaCppProvider:
     ) -> None:
         """Confirm one token comes back. Start the 35B line if the port is down."""
         del keep_alive, options
+        from arelis.tools.gpu_lease import yield_to_chat
+
+        await asyncio.to_thread(yield_to_chat)
         if self._launch_args:
             await asyncio.to_thread(ensure_server, self.base_url, self._launch_args)
             return

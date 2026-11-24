@@ -294,3 +294,18 @@ async def test_typed_existing_image_is_staged_after_allow(
     assert len(_pngs(drops)) == 2
 
 
+
+
+def test_explicit_no_picture_instruction_is_not_image_gen() -> None:
+    """A negated 'make a new picture' must not nudge or classify as generate."""
+    ask = "do not make a new picture, just repeat the line"
+    assert looks_like_image_gen(ask) is False
+    kinds = [h.kind for h in detect_intents(ask)]
+    assert "image_gen" not in kinds
+    assert looks_like_image_gen("make a new picture of a red fox") is True
+    # Negation binds to the make-picture verb, not an earlier don't in the ask.
+    assert looks_like_image_gen("don't forget to make a picture of the fox") is True
+    assert looks_like_image_gen("I don't like that one, make a new picture") is True
+    assert looks_like_image_gen("don't stop, make another picture") is True
+    assert looks_like_image_gen("no, make a picture of a dog instead") is True
+    assert looks_like_image_gen("never mind the weather, make a picture of a fox") is True

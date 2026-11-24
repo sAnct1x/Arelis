@@ -60,7 +60,8 @@ def test_filament_is_a_theme() -> None:
     assert confirm_mode() == "card"
 
 
-def test_filament_confirm_arms_without_a_card(arelis_window) -> None:
+def test_filament_confirm_arms_without_a_card(arelis_window, qt_app) -> None:
+    """A persist card still shows in Filament, and typed yes stays a plain allow."""
     from arelis.ui.settings_host import apply_window_theme
 
     window = arelis_window()
@@ -76,11 +77,13 @@ def test_filament_confirm_arms_without_a_card(arelis_window) -> None:
             persist_ok=True,
             persist_label="don't ask again about files",
         )
+        qt_app.processEvents()
         assert stage.confirm_open()
-        assert stage.confirm.isHidden()
-        assert not stage.confirm.allow_always.isVisible()
-        assert not stage.confirm.allow_turn.isVisible()
+        assert not stage.confirm.isHidden()
+        assert stage.confirm.allow_always.isVisible()
+        assert stage.confirm.allow_turn.isVisible()
         assert stage.confirm.allow_always.isChecked() is False
+        assert stage.confirm.allow_turn.isChecked() is False
         decided: list[tuple[str, bool]] = []
         stage.confirm.decided.connect(
             lambda _id, decision, batch: decided.append((decision, batch))
@@ -93,6 +96,56 @@ def test_filament_confirm_arms_without_a_card(arelis_window) -> None:
         apply_window_theme(window, "sodium", persist=False)
 
 
+def test_filament_download_allow_card_shows_size_and_buttons(
+    arelis_window, qt_app, monkeypatch, tmp_path
+) -> None:
+    """The Filament Allow card must be on screen, with size, Allow, and Deny."""
+    from arelis.config import merge_local_config
+    from arelis.ui.settings_host import apply_window_theme
+
+    local = tmp_path / "config.local.yaml"
+    monkeypatch.setattr("arelis.config.LOCAL_CONFIG_PATH", local)
+    monkeypatch.setattr(
+        "arelis.ui.filament_tile.merge_local_config",
+        lambda patch, path=None: merge_local_config(patch, path=local),
+    )
+    window = arelis_window({"ui": {"theme": "filament", "filament_ack": True}})
+    apply_window_theme(window, "filament", persist=False)
+    try:
+        stage = window.conversation
+        headline = "download about 5324 MB, then make a picture"
+        detail = "This downloads about 5324 MB of picture files."
+        stage.ask_confirm(
+            "c1",
+            "image",
+            "image()",
+            headline=headline,
+            detail=detail,
+            batch_ok=True,
+            persist_ok=False,
+        )
+        qt_app.processEvents()
+        tile = window._filament_chat_tile
+        assert stage.confirm_open()
+        assert not stage.confirm.isHidden()
+        assert stage.confirm.allow_btn.isVisible()
+        assert stage.confirm.skip_btn.isVisible()
+        assert stage.confirm.allow_btn.accessibleName() == "Allow"
+        assert stage.confirm.skip_btn.accessibleName() == "Deny"
+        assert "5324" in stage.confirm.summary.text()
+        assert "MB" in stage.confirm.summary.text()
+        # The card is on the chat tile, not left on the hidden desk face.
+        assert stage.confirm.parent() is tile.body or tile.isAncestorOf(stage.confirm)
+        decided: list[tuple[str, bool]] = []
+        stage.confirm.decided.connect(
+            lambda _id, decision, batch: decided.append((decision, batch))
+        )
+        stage.input.setText("yes")
+        stage._submit()
+        assert decided == [("allow", False)]
+        assert not stage.confirm_open()
+    finally:
+        apply_window_theme(window, "sodium", persist=False)
 
 
 def test_leaving_filament_hides_unkept_tiles_before_unlocking_them(arelis_window, qt_app) -> None:
@@ -219,3 +272,44 @@ def test_filament_days_tile_never_opens_at_its_night_size(arelis_window, qt_app)
         qt_app.processEvents()
     assert seen and max(h for _w, h in seen) <= 618, seen
     assert max(w for w, _h in seen) <= 540, seen
+
+
+def test_filament_does_not_overwrite_saved_chat_size(
+    qt_app, monkeypatch, tmp_path
+) -> None:
+    """A saved chat plate of 1296x1259 must not be rewritten to the 380x400 default."""
+    import yaml
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QWidget
+
+    from arelis.config import merge_local_config
+    from arelis.ui.filament_tile import bind_tile_size
+    from arelis.ui.theme import apply_theme
+
+    local = tmp_path / "config.local.yaml"
+    local.write_text(
+        "ui:\n  filament_tile_size:\n    chat:\n      w: 1296\n      h: 1259\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("arelis.config.LOCAL_CONFIG_PATH", local)
+    monkeypatch.setattr(
+        "arelis.ui.filament_tile.merge_local_config",
+        lambda patch, path=None: merge_local_config(patch, path=local),
+    )
+    apply_theme("filament")
+    try:
+        store = {"chat": (1296, 1259)}
+        widget = QWidget()
+        widget.resize(380, 400)
+        bind_tile_size(widget, "chat", store, {})
+        widget.show()
+        widget.resize(380, 400)
+        qt_app.processEvents()
+        QTest.qWait(600)
+        assert store["chat"] == (1296, 1259), store
+        data = yaml.safe_load(local.read_text(encoding="utf-8")) or {}
+        size = ((data.get("ui") or {}).get("filament_tile_size") or {}).get("chat") or {}
+        assert size.get("w") == 1296, size
+        assert size.get("h") == 1259, size
+    finally:
+        apply_theme("sodium")

@@ -399,11 +399,14 @@ async def seed_prefix_cache(
     prefix: PrefixWarmup,
     *,
     announce: bool = True,
+    messages: list[dict[str, Any]] | None = None,
 ) -> None:
     """Prefill the static prefix so the next turn reuses it.
 
     ``announce`` is for the startup seed. A mid-session rebuild stays quiet:
     the first-reply line would be wrong in the middle of a chat.
+    ``messages`` overrides the default seed (static prefix plus a dummy user
+    row) when a caller already has the rows to prefill.
     """
     model = router.active_model or router.model_for(router.default_role)
     started = time.perf_counter()
@@ -414,7 +417,7 @@ async def seed_prefix_cache(
         # without the cache entry this exists to create.
         stream = router.provider.stream_chat(
             model,
-            seed_messages(prefix),
+            list(messages) if messages is not None else seed_messages(prefix),
             tools=prefix.tools,
             keep_alive=router.default_keep_alive,
             options={"num_ctx": prefix.num_ctx, "num_predict": 1},

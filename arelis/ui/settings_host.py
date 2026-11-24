@@ -245,9 +245,22 @@ def apply_settings(window, values: dict[str, Any]) -> None:
             app_password=str(mail_patch.get("app_password") or ""),
         )
 
+    backend_changed = False
+    tools_patch = values.get("tools") or {}
+    image_patch = tools_patch.get("image") or {}
+    if "backend" in image_patch:
+        from arelis.tools.sdcpp import resolve_backend
+
+        backend = resolve_backend(str(image_patch.get("backend") or "sdcpp"))
+        image_cfg = window.config.setdefault("tools", {}).setdefault("image", {})
+        if str(image_cfg.get("backend") or "sdcpp") != backend:
+            backend_changed = True
+        image_cfg["backend"] = backend
+        merge_local_config({"tools": {"image": {"backend": backend}}})
+
     vision_after = str((window.config.get("models") or {}).get("vision") or "")
     mail_set = bool(mail_patch.get("address") or mail_patch.get("app_password"))
-    if mail_set or vision_after != vision_before:
+    if mail_set or vision_after != vision_before or backend_changed:
         from arelis.core.tool_surface import refresh_session_tools
 
         refresh_session_tools(window, recheck_vl=vision_after != vision_before)
